@@ -50,3 +50,10 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+# Zig specific
+zig-cache/
+zig-out/
+
+# AOC specific
+input/
