@@ -22,7 +22,6 @@ fn numIncreasesSlidingWindow(input: []const u8) !i32 {
     var start: usize = 0;
     var count: i32 = 0;
     var i: usize = 0;
-    var prevSum: i32 = 0;
     var slidingWindow = [3]i32{ 0, 0, 0 };
 
     while (std.mem.indexOfScalarPos(u8, input, start, '\n')) |end| : (i += 1) {
@@ -31,16 +30,12 @@ fn numIncreasesSlidingWindow(input: []const u8) !i32 {
         if (i < 3) {
             // initialization
             slidingWindow[i] = num;
-            prevSum += num;
         } else {
-            const newSum = prevSum - slidingWindow[0] + num;
-            if (prevSum < newSum) count += 1;
-
+            if (num > slidingWindow[0]) count += 1;
             // slide
             slidingWindow[0] = slidingWindow[1];
             slidingWindow[1] = slidingWindow[2];
             slidingWindow[2] = num;
-            prevSum = newSum;
         }
     }
     return count;
