@@ -135,11 +135,11 @@ const LineType = enum {
 
 const PointsSet = std.HashMap(Point, void, PointContext, std.hash_map.default_max_load_percentage);
 
-fn countOverlaps(pointsSeen: *PointsSet, a1: u16, a2: u16, b1: u16, b2: u16, l1: LineSegment, l2: LineSegment, lineType: LineType) !void {
-    const typeName = switch (lineType) {
-        .Vertical => "Vertical",
-        .Horizontal => "Horizontal",
-    };
+fn countOverlaps(pointsSeen: *PointsSet, a1: u16, a2: u16, b1: u16, b2: u16, l1: LineSegment, _: LineSegment, lineType: LineType) !void {
+    // const typeName = switch (lineType) {
+    //     .Vertical => "Vertical",
+    //     .Horizontal => "Horizontal",
+    // };
     assert(a1 <= b1);
     // Case 0: (no overlap) a2 < b1
     // a1 --------- a2       b1 ---------- b2
@@ -149,14 +149,14 @@ fn countOverlaps(pointsSeen: *PointsSet, a1: u16, a2: u16, b1: u16, b2: u16, l1:
     // Case 1: (partial overlap) b1 <= a2 and a2 < b2
     // a1 --------- b1 ===== a2 ---------- b2
     if (b1 <= a2 and a2 < b2) {
-        std.debug.print("{s} Case 1: {d} -- {d} -- {d} -- {d} == {any}, {any}\n", .{ typeName, a1, b1, a2, b2, l1, l2 });
+        // std.debug.print("{s} Case 1: {d} -- {d} -- {d} -- {d} == {any}, {any}\n", .{ typeName, a1, b1, a2, b2, l1, l2 });
         var b1_ = b1;
         while (b1_ <= a2) : (b1_ += 1) {
             const point = switch (lineType) {
                 .Vertical => Point{ .x = l1.startX, .y = b1_ },
                 .Horizontal => Point{ .x = b1_, .y = l1.startY },
             };
-            std.debug.print("putting point: {any}\n", .{point});
+            // std.debug.print("putting point: {any}\n", .{point});
             try pointsSeen.put(point, undefined);
         }
         return;
@@ -164,14 +164,14 @@ fn countOverlaps(pointsSeen: *PointsSet, a1: u16, a2: u16, b1: u16, b2: u16, l1:
     // Case 2: (full overlap) b1 < a2 and b2 <= a2
     // a1 --------- b1 ===== b2 ---------- a2
     if (b1 < a2 and b2 <= a2) {
-        std.debug.print("{s} Case 2: {d} -- {d} -- {d} -- {d}== {any}, {any}\n", .{ typeName, a1, b1, b2, a2, l1, l2 });
+        // std.debug.print("{s} Case 2: {d} -- {d} -- {d} -- {d}== {any}, {any}\n", .{ typeName, a1, b1, b2, a2, l1, l2 });
         var b1_ = b1;
         while (b1_ <= b2) : (b1_ += 1) {
             const point = switch (lineType) {
                 .Vertical => Point{ .x = l1.startX, .y = b1_ },
                 .Horizontal => Point{ .x = b1_, .y = l1.startY },
             };
-            std.debug.print("putting point: {any}\n", .{point});
+            // std.debug.print("putting point: {any}\n", .{point});
             try pointsSeen.put(point, undefined);
         }
         return;
@@ -180,11 +180,8 @@ fn countOverlaps(pointsSeen: *PointsSet, a1: u16, a2: u16, b1: u16, b2: u16, l1:
 }
 
 // Part 1
-// Straight lines simplifies this a lot, we now have that only horizontal lines can intersect with vertical lines,
-// and we can never have triple intersections
-// ^^ actly the above is not strictly true but lets see if it works for now
-// The general solution is trickier, and involves doing cross products and there is a NLogN solution i think
-// But even if we have to do that, i think the N2 solution is ok, we only have 500 lines.
+// Straight lines simplifies this a lot, we now have that only horizontal lines can intersect with vertical lines
+// and with themselves
 fn numIntersectionsStraight(horizontalLines: []LineSegment, verticalLines: []LineSegment, allocator: *Allocator) !u32 {
     var pointsSeen = PointsSet.init(allocator);
     defer pointsSeen.deinit();
@@ -228,17 +225,117 @@ fn numIntersectionsStraight(horizontalLines: []LineSegment, verticalLines: []Lin
             if (between(horizontalLine.startX, verticalLine.startX, horizontalLine.endX) and
                 between(verticalLine.startY, horizontalLine.startY, verticalLine.endY))
             {
-                std.debug.print("Case 3: {any}, {any}\n", .{ horizontalLine, verticalLine });
+                // std.debug.print("Case 3: {any}, {any}\n", .{ horizontalLine, verticalLine });
                 const p = Point{
                     .x = verticalLine.startX,
                     .y = horizontalLine.startY,
                 };
-                std.debug.print("putting point: {any}\n", .{p});
+                // std.debug.print("putting point: {any}\n", .{p});
                 try pointsSeen.put(p, undefined);
             }
         }
     }
     return pointsSeen.count();
+}
+
+// --------------- Part 2 -----------------------
+// So for this part I just gave up and decided to try a different approach,
+// this time I'm just filling out a grid of numbers and counting intersections
+// Reaons being that I noticed that the max values are not very high (<1000) so this is feasible
+// So the approach is 100% different from part 1.
+// The part1 code is more generic since points can be unbounded (I used u16 so it only works for numbers up to 65535 but that's plenty big.)
+// Here, the width * height must be a reasonable number
+
+const GridDimensions = struct {
+    width: u32,
+    height: u32,
+};
+
+fn computeGridDimensions(lines: []LineSegment) GridDimensions {
+    // Compute dimentions
+    var width: u32 = 0;
+    var height: u32 = 0;
+    for (lines) |line| {
+        // lines are guaranteed to be ordered in terms of (x, y)
+        if (line.endX > width) {
+            width = line.endX;
+        }
+        if (line.endY > height) {
+            height = line.endY;
+        }
+    }
+    width += 1; // 0
+    height += 1; // 0
+    return .{
+        .width = width,
+        .height = height,
+    };
+}
+
+fn debugPrintGrid(grid: []u16, dimensions: GridDimensions) void {
+    assert(grid.len == (dimensions.width * dimensions.height));
+    var row: usize = 0;
+    while (row < dimensions.height) : (row += 1) {
+        var col: u32 = 0;
+        while (col < dimensions.width) : (col += 1) {
+            const x = grid[row * dimensions.width + col];
+            if (x == 0) {
+                std.debug.print(". ", .{});
+            } else {
+                std.debug.print("{d} ", .{x});
+            }
+        }
+        std.debug.print("\n", .{});
+    }
+    std.debug.print("\n", .{});
+}
+
+fn partTwo(lines: []LineSegment, allocator: *Allocator) !u32 {
+    const dimensions = computeGridDimensions(lines);
+    var grid = try allocator.alloc(u16, dimensions.width * dimensions.height);
+    defer allocator.free(grid);
+    std.mem.set(u16, grid, 0);
+
+    for (lines) |line| {
+        if (line.isHorizontal()) {
+            // inc every point from startX to endX
+            const row = line.startY;
+            var col = line.startX;
+            while (col <= line.endX) : (col += 1) {
+                grid[row * dimensions.width + col] += 1;
+            }
+        } else if (line.isVertical()) {
+            const col = line.startX;
+            var row = line.startY;
+            while (row <= line.endY) : (row += 1) {
+                grid[row * dimensions.width + col] += 1;
+            }
+        } else {
+            // diagonal line
+            const dist = line.endX - line.startX;
+            assert((try std.math.absInt(@as(i32, line.endY) - @as(i32, line.startY))) == dist);
+
+            if (line.startY < line.endY) {
+                // downward right
+                var i: u16 = 0;
+                while (i <= dist) : (i += 1) {
+                    grid[(line.startX + i) * dimensions.width + (line.startY + i)] += 1;
+                }
+            } else {
+                // down left
+                var i: u16 = 0;
+                while (i <= dist) : (i += 1) {
+                    grid[(line.startX + i) * dimensions.width + (line.startY - i)] += 1;
+                }
+            }
+        }
+    }
+    // debugPrintGrid(grid, dimensions);
+    var result: u32 = 0;
+    for (grid) |x| {
+        if (x > 1) result += 1;
+    }
+    return result;
 }
 
 pub fn main() !void {
@@ -249,24 +346,26 @@ pub fn main() !void {
 
     var lines = try parseInput(inputFile, allocator);
     defer lines.deinit();
-
-    var horizontalLines = ArrayList(LineSegment).init(allocator);
-    defer horizontalLines.deinit();
-    var verticalLines = ArrayList(LineSegment).init(allocator);
-    defer verticalLines.deinit();
     // Part 1
-    for (lines.items) |line| {
-        if (line.isHorizontal()) {
-            // std.debug.print("Horizontal line {any}\n", .{line});
-            try horizontalLines.append(line);
-        } else if (line.isVertical()) {
-            // std.debug.print("Vertical line {any}\n", .{line});
-            try verticalLines.append(line);
-            // } else {
-            //     // std.debug.print("Regular line {any}\n", .{line});
+    {
+        var horizontalLines = ArrayList(LineSegment).init(allocator);
+        defer horizontalLines.deinit();
+        var verticalLines = ArrayList(LineSegment).init(allocator);
+        defer verticalLines.deinit();
+        // Part 1
+        for (lines.items) |line| {
+            if (line.isHorizontal()) {
+                try horizontalLines.append(line);
+            } else if (line.isVertical()) {
+                try verticalLines.append(line);
+            }
         }
+        try stdout.print("Part 1 Num points cross: {d}\n", .{try numIntersectionsStraight(horizontalLines.items, verticalLines.items, allocator)});
     }
-    try stdout.print("Part 1 Num points cross: {d}\n", .{try numIntersectionsStraight(horizontalLines.items, verticalLines.items, allocator)});
+    // Part 2
+    {
+        try stdout.print("Part 2 Num points cross: {d}\n", .{try partTwo(lines.items, allocator)});
+    }
 }
 
 test "Part 1 sample" {
@@ -334,4 +433,26 @@ test "Part 1 sample extended" {
         }
     }
     try std.testing.expectEqual(@as(u32, 8), try numIntersectionsStraight(horizontalLines.items, verticalLines.items, allocator));
+}
+
+test "Part 2 sample" {
+    const input =
+        \\0,9 -> 5,9
+        \\8,0 -> 0,8
+        \\9,4 -> 3,4
+        \\2,2 -> 2,1
+        \\7,0 -> 7,4
+        \\6,4 -> 2,0
+        \\0,9 -> 2,9
+        \\3,4 -> 1,4
+        \\0,0 -> 8,8
+        \\5,5 -> 8,2
+        \\
+    ;
+    const allocator = std.testing.allocator;
+    var lines = try parseInput(input, allocator);
+    defer lines.deinit();
+
+    std.debug.print("\n", .{});
+    try std.testing.expectEqual(@as(u32, 12), try partTwo(lines.items, allocator));
 }
