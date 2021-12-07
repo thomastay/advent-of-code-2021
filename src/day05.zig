@@ -298,7 +298,6 @@ fn partTwo(lines: []LineSegment, allocator: *Allocator) !u32 {
 
     for (lines) |line| {
         if (line.isHorizontal()) {
-            // inc every point from startX to endX
             const row = line.startY;
             var col = line.startX;
             while (col <= line.endX) : (col += 1) {
@@ -316,16 +315,16 @@ fn partTwo(lines: []LineSegment, allocator: *Allocator) !u32 {
             assert((try std.math.absInt(@as(i32, line.endY) - @as(i32, line.startY))) == dist);
 
             if (line.startY < line.endY) {
-                // downward right
+                // downwards
                 var i: u16 = 0;
                 while (i <= dist) : (i += 1) {
-                    grid[(line.startX + i) * dimensions.width + (line.startY + i)] += 1;
+                    grid[(line.startY + i) * dimensions.width + (line.startX + i)] += 1;
                 }
             } else {
-                // down left
+                // upwards
                 var i: u16 = 0;
                 while (i <= dist) : (i += 1) {
-                    grid[(line.startX + i) * dimensions.width + (line.startY - i)] += 1;
+                    grid[(line.startY - i) * dimensions.width + (line.startX + i)] += 1;
                 }
             }
         }
