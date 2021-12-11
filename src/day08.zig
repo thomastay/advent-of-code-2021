@@ -126,7 +126,7 @@ const Line = struct {
         }
     }
 };
-const ascU8 = std.sort.asc(u8);
+const ascU8 = std.sort.asc(u8); // somehow std.sort.asc_u8 isn't exported?
 
 /// Caller is responsible for freeing memory
 /// Since this creates a lot of small allocations (we sort the input strings),
@@ -150,12 +150,10 @@ fn parseInput(input: []const u8, allocator: *Allocator) ![]Line {
         var digits: [10][]const u8 = undefined;
         // Number of allocated digits so far (could fail at any point)
         var digitsCount: usize = 0;
-        errdefer {
-            var i: usize = 0;
-            while (i < digitsCount) : (i += 1) {
-                allocator.free(digits[i]);
-            }
-        }
+        errdefer while (digitsCount > 0) {
+            digitsCount -= 1;
+            allocator.free(digits[digitsCount]);
+        };
         while (digitsCount < 10) : (digitsCount += 1) {
             const sliceEnd = std.mem.indexOfScalarPos(u8, input, start, ' ').?;
             defer start = sliceEnd + 1;
@@ -173,12 +171,10 @@ fn parseInput(input: []const u8, allocator: *Allocator) ![]Line {
         //
         var out: [4][]const u8 = undefined;
         var outCount: usize = 0;
-        errdefer {
-            var i: usize = 0;
-            while (i < outCount) : (i += 1) {
-                allocator.free(out[i]);
-            }
-        }
+        errdefer while (outCount > 0) {
+            outCount -= 1;
+            allocator.free(out[outCount]);
+        };
         while (outCount < 4) : (outCount += 1) {
             const sliceEnd = std.mem.indexOfAnyPos(u8, input, start, &.{ ' ', '\n' }).?;
             defer start = sliceEnd + 1;
