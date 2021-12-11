@@ -49,7 +49,6 @@ fn shortestTriangleDistanceBF(numCrabsAtDist: []u32) usize {
         if (dist < bestPointFuel) {
             bestPoint = i;
             bestPointFuel = dist;
-            std.debug.print("Updating best point to {d} with fuel {d}\n", .{ bestPoint, bestPointFuel });
         }
     }
     return bestPointFuel;
@@ -68,7 +67,7 @@ fn triangleDiff(x: usize, y: usize) usize {
     if (x > y) return triangleDiff(y, x);
     if (x == y) return 0;
     const d = y - x;
-    return @divExact(d * (d + 1), 2);
+    return d * (d + 1) / 2;
 }
 
 pub fn main() !void {
