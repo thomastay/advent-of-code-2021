@@ -15,10 +15,17 @@ const assert = std.debug.assert;
 // 8(7): abcdefg
 // 9(6): abcdfg
 
-// 1(2): cf
-// 4(4): bcdf
-// 7(3): acf
-// 8(7): abcdefg
+/// 1(2): cf
+/// 4(4): bcdf
+/// 7(3): acf
+/// 8(7): abcdefg
+const DigitLengths = struct {
+    One: usize = 2,
+    Four: usize = 4,
+    Seven: usize = 3,
+    Eight: usize = 7,
+};
+const digitLengths = DigitLengths{};
 
 const PartOneResult = struct {
     n1: u32,
@@ -27,13 +34,33 @@ const PartOneResult = struct {
     n8: u32,
 };
 
-pub fn partOne(_: []Line) PartOneResult {
-    return PartOneResult{
-        .n1 = 0,
-        .n4 = 0,
-        .n7 = 0,
-        .n8 = 0,
-    };
+pub fn partOne(lines: []Line) PartOneResult {
+    var result = std.mem.zeroes(PartOneResult);
+    for (lines) |line| {
+        // var one: []const u8 = undefined;
+        // var four: []const u8 = undefined;
+        // var seven: []const u8 = undefined;
+        // var eight: []const u8 = undefined;
+        // for (line.digits) |digit| {
+        //     switch (digit.len) {
+        //         digitLengths.One => one = digit,
+        //         digitLengths.Four => four = digit,
+        //         digitLengths.Seven => seven = digit,
+        //         digitLengths.Eight => eight = digit,
+        //         else => continue,
+        //     }
+        // }
+        for (line.out) |outDigit| {
+            switch (outDigit.len) {
+                digitLengths.One => result.n1 += 1,
+                digitLengths.Four => result.n4 += 1,
+                digitLengths.Seven => result.n7 += 1,
+                digitLengths.Eight => result.n8 += 1,
+                else => continue,
+            }
+        }
+    }
+    return result;
 }
 
 pub fn main() !void {
@@ -45,7 +72,9 @@ pub fn main() !void {
     const input = try parseInput(inputFile, allocator);
     defer allocator.free(input);
 
-    try stdout.print("Part 1: {any}\n", .{partOne(input)});
+    const part1 = partOne(input);
+    const part1Total = part1.n1 + part1.n4 + part1.n7 + part1.n8;
+    try stdout.print("Part 1: {any}, total: {d}\n", .{ part1, part1Total });
 }
 
 const Line = struct {
@@ -66,7 +95,6 @@ fn parseInput(input: []const u8, allocator: *Allocator) ![]Line {
                 const sliceEnd = std.mem.indexOfScalarPos(u8, input, start, ' ').?;
                 defer start = sliceEnd + 1;
                 digits[inputCount] = input[start..sliceEnd];
-                std.debug.print("{s} ", .{digits[inputCount]});
             }
         }
         assert(input[start] == '|');
@@ -79,14 +107,35 @@ fn parseInput(input: []const u8, allocator: *Allocator) ![]Line {
                 const sliceEnd = std.mem.indexOfAnyPos(u8, input, start, &.{ ' ', '\n' }).?;
                 defer start = sliceEnd + 1;
                 out[inputCount] = input[start..sliceEnd];
-                std.debug.print("{s} ", .{out[inputCount]});
             }
         }
         try lines.append(Line{
             .digits = digits,
             .out = out,
         });
-        std.debug.print("\n", .{});
     }
     return lines.toOwnedSlice();
+}
+
+test "Part 1" {
+    const input =
+        \\be cfbegad cbdgef fgaecd cgeb fdcge agebfd fecdb fabcd edb | fdgacbe cefdb cefbgd gcbe
+        \\edbfga begcd cbg gc gcadebf fbgde acbgfd abcde gfcbed gfec | fcgedb cgb dgebacf gc
+        \\fgaebd cg bdaec gdafb agbcfd gdcbef bgcad gfac gcb cdgabef | cg cg fdcagb cbg
+        \\fbegcd cbd adcefb dageb afcb bc aefdc ecdab fgdeca fcdbega | efabcd cedba gadfec cb
+        \\aecbfdg fbg gf bafeg dbefa fcge gcbea fcaegb dgceab fcbdga | gecf egdcabf bgf bfgea
+        \\fgeab ca afcebg bdacfeg cfaedg gcfdb baec bfadeg bafgc acf | gebdcfa ecba ca fadegcb
+        \\dbcfg fgd bdegcaf fgec aegbdf ecdfab fbedc dacgb gdcebf gf | cefg dcbef fcge gbcadfe
+        \\bdfegc cbegaf gecbf dfcage bdacg ed bedf ced adcbefg gebcd | ed bcgafe cdgba cbgef
+        \\egadfb cdbfeg cegd fecab cgb gbdefca cg fgcdab egfdb bfceg | gbdfcae bgc cg cgb
+        \\gcafb gcf dcaebfg ecagb gf abcdeg gaef cafbge fdbac fegbdc | fgae cfgab fg bagce
+        \\
+    ;
+    var allocator = std.testing.allocator;
+    const d = try parseInput(input, allocator);
+    defer allocator.free(d);
+
+    const part1 = partOne(d);
+    const part1Total = part1.n1 + part1.n4 + part1.n7 + part1.n8;
+    try std.testing.expectEqual(@as(u32, 26), part1Total);
 }
