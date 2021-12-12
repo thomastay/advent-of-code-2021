@@ -32,7 +32,7 @@ fn partTwo(grid: Input, allocator: *Allocator) !usize {
     defer allocator.free(visited);
     std.mem.set(bool, visited, false);
 
-    // the last 3 are the top 3 basins, the fourth one is scratch space
+    // the last 3 are the top 3 basins, the first one is scratch space
     var basins = [4]usize{ 0, 0, 0, 0 };
     for (grid.items) |d, i| {
         const row = i / grid.nCols;
