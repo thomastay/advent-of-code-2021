@@ -24,6 +24,54 @@ fn partOne(grid: Input) usize {
     return result;
 }
 
+fn partTwo(grid: Input, allocator: *Allocator) !usize {
+    var visited = try allocator.alloc(bool, grid.items.len);
+    defer allocator.free(visited);
+    std.mem.set(bool, visited, false);
+
+    // the last 3 are the top 3 basins, the fourth one is scratch space
+    var basins = [4]usize{ 0, 0, 0, 0 };
+    for (grid.items) |d, i| {
+        const row = i / grid.nCols;
+        const col = i % grid.nCols;
+        // Find a low point, same as part 1
+        if (col > 0 and d >= grid.items[i - 1]) continue;
+        if (col < grid.nCols - 1 and d >= grid.items[i + 1]) continue;
+        if (row > 0 and d >= grid.items[i - grid.nCols]) continue;
+        if (row < grid.nRows - 1 and d >= grid.items[i + grid.nCols]) continue;
+
+        // from the low point, expand outwards
+        const basinSize = findBasinSize(grid, i, visited);
+        basins[0] = basinSize;
+        std.sort.sort(usize, &basins, {}, comptime std.sort.asc(usize));
+    }
+    return basins[1] * basins[2] * basins[3];
+}
+
+fn findBasinSize(grid: Input, pt: usize, visited: []bool) usize {
+    if (visited[pt] or grid.items[pt] == 9) return 0;
+
+    const d = grid.items[pt];
+    var result: usize = 1;
+    visited[pt] = true;
+
+    const row = pt / grid.nCols;
+    const col = pt % grid.nCols;
+    if (col > 0 and d < grid.items[pt - 1]) {
+        result += findBasinSize(grid, pt - 1, visited);
+    }
+    if (col < grid.nCols - 1 and d < grid.items[pt + 1]) {
+        result += findBasinSize(grid, pt + 1, visited);
+    }
+    if (row > 0 and d < grid.items[pt - grid.nCols]) {
+        result += findBasinSize(grid, pt - grid.nCols, visited);
+    }
+    if (row < grid.nRows - 1 and d < grid.items[pt + grid.nCols]) {
+        result += findBasinSize(grid, pt + grid.nCols, visited);
+    }
+    return result;
+}
+
 const Input = struct {
     items: Str,
     nRows: usize,
@@ -56,7 +104,7 @@ pub fn main() !void {
     var allocator = &arena.allocator; // use an arena
 
     const grid = try parseInput(inputFile, allocator);
-    try stdout.print("Part1: {d}\n", .{partOne(grid)});
+    try stdout.print("Part1: {d}\nPart2: {d}", .{ partOne(grid), try partTwo(grid, allocator) });
 }
 
 test "part 1" {
@@ -73,4 +121,19 @@ test "part 1" {
     const grid = try parseInput(testInput, allocator);
     defer allocator.free(grid.items);
     try std.testing.expectEqual(@as(usize, 22), partOne(grid));
+}
+
+test "part 2" {
+    const testInput =
+        \\2199943210
+        \\3987894921
+        \\9856789892
+        \\8767896789
+        \\9899965678
+        \\
+    ;
+    var allocator = std.testing.allocator;
+    const grid = try parseInput(testInput, allocator);
+    defer allocator.free(grid.items);
+    try std.testing.expectEqual(@as(usize, 1134), try partTwo(grid, allocator));
 }
