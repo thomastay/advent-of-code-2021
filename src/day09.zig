@@ -7,6 +7,9 @@ const Str = []const u8;
 const assert = std.debug.assert;
 const tokenize = std.mem.tokenize;
 const print = std.debug.print;
+fn sort(comptime T: type, items: []T) void {
+    std.sort.sort(T, items, {}, comptime std.sort.asc(T));
+}
 
 fn partOne(grid: Input) usize {
     var result: usize = 0;
@@ -43,7 +46,7 @@ fn partTwo(grid: Input, allocator: *Allocator) !usize {
         // from the low point, expand outwards
         const basinSize = findBasinSize(grid, i, visited);
         basins[0] = basinSize;
-        std.sort.sort(usize, &basins, {}, comptime std.sort.asc(usize));
+        sort(usize, &basins);
     }
     return basins[1] * basins[2] * basins[3];
 }
@@ -89,7 +92,6 @@ fn parseInput(input: Str, allocator: *Allocator) !Input {
             try lines.append(c - '0');
         }
     }
-    print("Grid width is: {d}x{d}\n", .{ nRows, nCols });
     return Input{ .items = lines.toOwnedSlice(), .nRows = nRows, .nCols = nCols };
 }
 
