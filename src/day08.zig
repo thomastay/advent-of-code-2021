@@ -19,13 +19,12 @@ const assert = std.debug.assert;
 /// 4(4): bcdf
 /// 7(3): acf
 /// 8(7): abcdefg
-const DigitLengths = struct {
+const digitLengths = struct {
     One: usize = 2,
     Four: usize = 4,
     Seven: usize = 3,
     Eight: usize = 7,
-};
-const digitLengths = DigitLengths{};
+}{};
 
 const PartOneResult = struct {
     n1: u32,
@@ -37,19 +36,6 @@ const PartOneResult = struct {
 pub fn partOne(lines: []Line) PartOneResult {
     var result = std.mem.zeroes(PartOneResult);
     for (lines) |line| {
-        // var one: []const u8 = undefined;
-        // var four: []const u8 = undefined;
-        // var seven: []const u8 = undefined;
-        // var eight: []const u8 = undefined;
-        // for (line.digits) |digit| {
-        //     switch (digit.len) {
-        //         digitLengths.One => one = digit,
-        //         digitLengths.Four => four = digit,
-        //         digitLengths.Seven => seven = digit,
-        //         digitLengths.Eight => eight = digit,
-        //         else => continue,
-        //     }
-        // }
         for (line.out) |outDigit| {
             switch (outDigit.len) {
                 digitLengths.One => result.n1 += 1,
@@ -61,6 +47,31 @@ pub fn partOne(lines: []Line) PartOneResult {
         }
     }
     return result;
+}
+
+pub fn partTwo(lines: []Line) u32 {
+    var result: u32 = 0;
+    const powTens = [_]u32{ 1000, 100, 10, 1 };
+    for (lines) |line| {
+        const digits = inferDigits(line.digits);
+        for (line.out) |outStr, i| {
+            for (digits) |digitStr, digit| {
+                if (std.mem.eql(u8, digitStr, outStr)) {
+                    result += @intCast(u32, digit) * powTens[i];
+                    break;
+                }
+            }
+        }
+    }
+    return result;
+}
+
+fn debugPrintInference(digits: [10][]const u8) void {
+    std.debug.print("Inferred ", .{});
+    for (digits) |digit, i| {
+        std.debug.print("{s} - {d} ", .{ digit, i });
+    }
+    std.debug.print("\n", .{});
 }
 
 /// # Algorithm:
@@ -70,47 +81,148 @@ pub fn partOne(lines: []Line) PartOneResult {
 /// Compare 1 and all 5-len strings. 1 is a subset of 3 only. This gives you 3
 /// Compute (8 - 6). The missing character is cc
 /// Compare two remaining 5-len strings. The one with cc is 2, the other is 5.
-pub fn partTwo(lines: []Line) PartOneResult {
-    var result = std.mem.zeroes(PartOneResult);
-    for (lines) |line| {
-        // var one: []const u8 = undefined;
-        // var four: []const u8 = undefined;
-        // var seven: []const u8 = undefined;
-        // var eight: []const u8 = undefined;
-        // for (line.digits) |digit| {
-        //     switch (digit.len) {
-        //         digitLengths.One => one = digit,
-        //         digitLengths.Four => four = digit,
-        //         digitLengths.Seven => seven = digit,
-        //         digitLengths.Eight => eight = digit,
-        //         else => continue,
-        //     }
-        // }
-        for (line.out) |outDigit| {
-            switch (outDigit.len) {
-                digitLengths.One => result.n1 += 1,
-                digitLengths.Four => result.n4 += 1,
-                digitLengths.Seven => result.n7 += 1,
-                digitLengths.Eight => result.n8 += 1,
-                else => continue,
+fn inferDigits(digits: [10][]const u8) [10][]const u8 {
+    var one: []const u8 = undefined;
+    var four: []const u8 = undefined;
+    var seven: []const u8 = undefined;
+    var eight: []const u8 = undefined;
+
+    var len5: [3][]const u8 = undefined;
+    var len6: [3][]const u8 = undefined;
+
+    // Step 1: Identify all known digits
+    {
+        var len5Count: usize = 0;
+        var len6Count: usize = 0;
+        for (digits) |digit| {
+            switch (digit.len) {
+                digitLengths.One => one = digit,
+                digitLengths.Four => four = digit,
+                digitLengths.Seven => seven = digit,
+                digitLengths.Eight => eight = digit,
+                6 => {
+                    len6[len6Count] = digit;
+                    len6Count += 1;
+                },
+                5 => {
+                    len5[len5Count] = digit;
+                    len5Count += 1;
+                },
+                else => unreachable,
             }
         }
+        assert(len5Count == 3);
+        assert(len6Count == 3);
     }
-    return result;
+
+    // Step 2: Filter out 6 len strings
+    const nineIdx = findSubset(len6, four);
+    const zeroIdx = blk: {
+        for (len6) |slic, i| {
+            if (i == nineIdx) continue;
+            if (isSubsetOf(one, slic)) break :blk i;
+        }
+        unreachable;
+    };
+    const sixIdx = oddOneOut(nineIdx, zeroIdx);
+    const six = len6[sixIdx];
+
+    // Step 3: five len strings
+    const threeIdx = findSubset(len5, one);
+    const twoIdx = blk: {
+        const cc = digitDiff(eight, six);
+        for (len5) |slic, i| {
+            if (i == threeIdx) continue;
+            if (contains(slic, cc)) break :blk i;
+        }
+        unreachable;
+    };
+    const fiveIdx = oddOneOut(threeIdx, twoIdx);
+    return [_][]const u8{
+        len6[zeroIdx],
+        one,
+        len5[twoIdx],
+        len5[threeIdx],
+        four,
+        len5[fiveIdx],
+        six,
+        seven,
+        eight,
+        len6[nineIdx],
+    };
+}
+
+fn contains(x: []const u8, c: u8) bool {
+    for (x) |xc| {
+        if (xc == c) return true;
+    }
+    return false;
+}
+
+// Returns the char present in x not in y
+fn digitDiff(x: []const u8, y: []const u8) u8 {
+    assert(x.len - y.len == 1);
+
+    for (x) |c, i| {
+        if (i == x.len - 1 or y[i] != c) return c;
+    }
+    unreachable;
+}
+
+// from 0 - 2, return the one that's not a or b
+fn oddOneOut(a: usize, b: usize) usize {
+    var i: usize = 0;
+    while (i < 3) : (i += 1) {
+        if (i != a and i != b) return i;
+    }
+    unreachable;
+}
+
+fn findSubset(arr: [3][]const u8, subset: []const u8) usize {
+    for (arr) |slic, i| {
+        if (isSubsetOf(subset, slic)) return i;
+    }
+    unreachable;
+}
+
+// x, y are sorted and x.len < y.len
+fn isSubsetOf(x: []const u8, y: []const u8) bool {
+    assert(x.len < y.len);
+
+    var yi: usize = 0;
+    for (x) |xc| {
+        // Try to scan forward and find the char
+        while (true) {
+            if (yi == y.len) return false;
+            if (y[yi] == xc) break;
+            yi += 1;
+        }
+    }
+    return true;
+}
+
+test "isSubsetOf" {
+    try std.testing.expect(isSubsetOf("afg", "abcfsdg"));
+    try std.testing.expect(!isSubsetOf("afgh", "abcfsdg"));
+    try std.testing.expect(!isSubsetOf("agh", "abcfsdg"));
 }
 
 pub fn main() !void {
+    // Standard boilerplate for Aoc problems
     const stdout = std.io.getStdOut().writer();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var allocator = &gpa.allocator;
-    defer std.debug.assert(!gpa.deinit()); // no leaks
+    var gpaAllocator = &gpa.allocator;
+    defer assert(!gpa.deinit()); // Check for memory leaks
+    var arena = std.heap.ArenaAllocator.init(gpaAllocator);
+    defer arena.deinit();
+    var allocator = &arena.allocator; // use an arena
 
-    const input = try parseInput(inputFile, allocator);
-    defer allocator.free(input);
-
-    const part1 = partOne(input);
+    // don't free, will be freed in arena
+    const lines = try parseInput(inputFile, allocator);
+    const part1 = partOne(lines);
     const part1Total = part1.n1 + part1.n4 + part1.n7 + part1.n8;
     try stdout.print("Part 1: {any}, total: {d}\n", .{ part1, part1Total });
+    try stdout.print("Part 2: {d}\n", .{partTwo(lines)});
 }
 
 const Line = struct {
@@ -134,16 +246,13 @@ const ascU8 = std.sort.asc(u8); // somehow std.sort.asc_u8 isn't exported?
 fn parseInput(input: []const u8, allocator: *Allocator) ![]Line {
     var start: usize = 0;
     var lines = ArrayList(Line).init(allocator);
-    errdefer {
-        for (lines.items) |line| {
-            line.deinit(allocator);
-        }
-        lines.deinit();
-    }
+    errdefer lines.deinit();
+    errdefer for (lines.items) |line| {
+        line.deinit(allocator);
+    };
 
     // A line consists of exactly 10 slices then a | then four more slices
     while (std.mem.indexOfScalarPos(u8, input, start, '\n')) |lineEnd| : (start = lineEnd + 1) {
-
         //
         // Fill in Digits
         //
@@ -191,22 +300,26 @@ fn parseInput(input: []const u8, allocator: *Allocator) ![]Line {
     return lines.toOwnedSlice();
 }
 
+///
+/// TESTING
+///
+const testInput =
+    \\be cfbegad cbdgef fgaecd cgeb fdcge agebfd fecdb fabcd edb | fdgacbe cefdb cefbgd gcbe
+    \\edbfga begcd cbg gc gcadebf fbgde acbgfd abcde gfcbed gfec | fcgedb cgb dgebacf gc
+    \\fgaebd cg bdaec gdafb agbcfd gdcbef bgcad gfac gcb cdgabef | cg cg fdcagb cbg
+    \\fbegcd cbd adcefb dageb afcb bc aefdc ecdab fgdeca fcdbega | efabcd cedba gadfec cb
+    \\aecbfdg fbg gf bafeg dbefa fcge gcbea fcaegb dgceab fcbdga | gecf egdcabf bgf bfgea
+    \\fgeab ca afcebg bdacfeg cfaedg gcfdb baec bfadeg bafgc acf | gebdcfa ecba ca fadegcb
+    \\dbcfg fgd bdegcaf fgec aegbdf ecdfab fbedc dacgb gdcebf gf | cefg dcbef fcge gbcadfe
+    \\bdfegc cbegaf gecbf dfcage bdacg ed bedf ced adcbefg gebcd | ed bcgafe cdgba cbgef
+    \\egadfb cdbfeg cegd fecab cgb gbdefca cg fgcdab egfdb bfceg | gbdfcae bgc cg cgb
+    \\gcafb gcf dcaebfg ecagb gf abcdeg gaef cafbge fdbac fegbdc | fgae cfgab fg bagce
+    \\
+;
+
 test "Part 1" {
-    const input =
-        \\be cfbegad cbdgef fgaecd cgeb fdcge agebfd fecdb fabcd edb | fdgacbe cefdb cefbgd gcbe
-        \\edbfga begcd cbg gc gcadebf fbgde acbgfd abcde gfcbed gfec | fcgedb cgb dgebacf gc
-        \\fgaebd cg bdaec gdafb agbcfd gdcbef bgcad gfac gcb cdgabef | cg cg fdcagb cbg
-        \\fbegcd cbd adcefb dageb afcb bc aefdc ecdab fgdeca fcdbega | efabcd cedba gadfec cb
-        \\aecbfdg fbg gf bafeg dbefa fcge gcbea fcaegb dgceab fcbdga | gecf egdcabf bgf bfgea
-        \\fgeab ca afcebg bdacfeg cfaedg gcfdb baec bfadeg bafgc acf | gebdcfa ecba ca fadegcb
-        \\dbcfg fgd bdegcaf fgec aegbdf ecdfab fbedc dacgb gdcebf gf | cefg dcbef fcge gbcadfe
-        \\bdfegc cbegaf gecbf dfcage bdacg ed bedf ced adcbefg gebcd | ed bcgafe cdgba cbgef
-        \\egadfb cdbfeg cegd fecab cgb gbdefca cg fgcdab egfdb bfceg | gbdfcae bgc cg cgb
-        \\gcafb gcf dcaebfg ecagb gf abcdeg gaef cafbge fdbac fegbdc | fgae cfgab fg bagce
-        \\
-    ;
     var allocator = std.testing.allocator;
-    const lines = try parseInput(input, allocator);
+    const lines = try parseInput(testInput, allocator);
     defer {
         for (lines) |line| {
             line.deinit(allocator);
@@ -220,23 +333,10 @@ test "Part 1" {
 }
 
 test "Parsing with failing allocator" {
-    const input =
-        \\be cfbegad cbdgef fgaecd cgeb fdcge agebfd fecdb fabcd edb | fdgacbe cefdb cefbgd gcbe
-        \\edbfga begcd cbg gc gcadebf fbgde acbgfd abcde gfcbed gfec | fcgedb cgb dgebacf gc
-        \\fgaebd cg bdaec gdafb agbcfd gdcbef bgcad gfac gcb cdgabef | cg cg fdcagb cbg
-        \\fbegcd cbd adcefb dageb afcb bc aefdc ecdab fgdeca fcdbega | efabcd cedba gadfec cb
-        \\aecbfdg fbg gf bafeg dbefa fcge gcbea fcaegb dgceab fcbdga | gecf egdcabf bgf bfgea
-        \\fgeab ca afcebg bdacfeg cfaedg gcfdb baec bfadeg bafgc acf | gebdcfa ecba ca fadegcb
-        \\dbcfg fgd bdegcaf fgec aegbdf ecdfab fbedc dacgb gdcebf gf | cefg dcbef fcge gbcadfe
-        \\bdfegc cbegaf gecbf dfcage bdacg ed bedf ced adcbefg gebcd | ed bcgafe cdgba cbgef
-        \\egadfb cdbfeg cegd fecab cgb gbdefca cg fgcdab egfdb bfceg | gbdfcae bgc cg cgb
-        \\gcafb gcf dcaebfg ecagb gf abcdeg gaef cafbge fdbac fegbdc | fgae cfgab fg bagce
-        \\
-    ;
     var failNums: usize = 0;
     while (failNums < 200) : (failNums += 4) {
         var allocator = &std.testing.FailingAllocator.init(std.testing.allocator, failNums).allocator;
-        const linesOrErr = parseInput(input, allocator);
+        const linesOrErr = parseInput(testInput, allocator);
         if (linesOrErr) |lines| {
             for (lines) |line| {
                 line.deinit(allocator);
@@ -246,4 +346,36 @@ test "Parsing with failing allocator" {
             try std.testing.expectEqual(error.OutOfMemory, err);
         }
     }
+}
+
+test "part 2 single" {
+    const singleTestInput =
+        \\acedgfb cdfbe gcdfa fbcad dab cefabd cdfgeb eafb cagedb ab | cdfeb fcadb cdfeb cdbaf
+        \\
+    ;
+    var allocator = std.testing.allocator;
+    const lines = try parseInput(singleTestInput, allocator);
+    defer {
+        for (lines) |line| {
+            line.deinit(allocator);
+        }
+        allocator.free(lines);
+    }
+
+    const part2 = partTwo(lines);
+    try std.testing.expectEqual(@as(u32, 5353), part2);
+}
+
+test "part 2" {
+    var allocator = std.testing.allocator;
+    const lines = try parseInput(testInput, allocator);
+    defer {
+        for (lines) |line| {
+            line.deinit(allocator);
+        }
+        allocator.free(lines);
+    }
+
+    const part2 = partTwo(lines);
+    try std.testing.expectEqual(@as(u32, 61229), part2);
 }
