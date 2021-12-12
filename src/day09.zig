@@ -4,6 +4,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const Str = []const u8;
+const BitSet = std.DynamicBitSet;
 const assert = std.debug.assert;
 const tokenize = std.mem.tokenize;
 const print = std.debug.print;
@@ -28,9 +29,8 @@ fn partOne(grid: Input) usize {
 }
 
 fn partTwo(grid: Input, allocator: *Allocator) !usize {
-    var visited = try allocator.alloc(bool, grid.items.len);
-    defer allocator.free(visited);
-    std.mem.set(bool, visited, false);
+    var visited = try BitSet.initEmpty(grid.items.len, allocator);
+    defer visited.deinit();
 
     // the last 3 are the top 3 basins, the first one is scratch space
     var basins = [4]usize{ 0, 0, 0, 0 };
@@ -44,22 +44,22 @@ fn partTwo(grid: Input, allocator: *Allocator) !usize {
         if (row < grid.nRows - 1 and d >= grid.items[i + grid.nCols]) continue;
 
         // from the low point, expand outwards
-        const basinSize = findBasinSize(grid, i, visited);
+        const basinSize = findBasinSize(grid, i, &visited);
         basins[0] = basinSize;
         sort(usize, &basins);
     }
     return basins[1] * basins[2] * basins[3];
 }
 
-fn findBasinSize(grid: Input, pt: usize, visited: []bool) usize {
-    if (visited[pt] or grid.items[pt] == 9) return 0;
+fn findBasinSize(grid: Input, pt: usize, visited: *BitSet) usize {
+    if (visited.isSet(pt) or grid.items[pt] == 9) return 0;
 
-    const d = grid.items[pt];
     var result: usize = 1;
-    visited[pt] = true;
+    visited.set(pt);
 
     const row = pt / grid.nCols;
     const col = pt % grid.nCols;
+    const d = grid.items[pt];
     if (col > 0 and d < grid.items[pt - 1]) {
         result += findBasinSize(grid, pt - 1, visited);
     }
