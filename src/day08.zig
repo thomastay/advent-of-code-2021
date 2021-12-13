@@ -229,7 +229,7 @@ const Line = struct {
     digits: [10][]const u8,
     out: [4][]const u8,
 
-    pub fn deinit(self: @This(), allocator: *Allocator) void {
+    pub fn deinit(self: @This(), allocator: Allocator) void {
         for (self.digits) |digit| {
             allocator.free(digit);
         }
@@ -243,7 +243,7 @@ const ascU8 = std.sort.asc(u8); // somehow std.sort.asc_u8 isn't exported?
 /// Caller is responsible for freeing memory
 /// Since this creates a lot of small allocations (we sort the input strings),
 /// caller is recommended to use a Arena Allocator
-fn parseInput(input: []const u8, allocator: *Allocator) ![]Line {
+fn parseInput(input: []const u8, allocator: Allocator) ![]Line {
     var start: usize = 0;
     var lines = ArrayList(Line).init(allocator);
     errdefer lines.deinit();
@@ -335,7 +335,7 @@ test "Part 1" {
 test "Parsing with failing allocator" {
     var failNums: usize = 0;
     while (failNums < 200) : (failNums += 4) {
-        var allocator = &std.testing.FailingAllocator.init(std.testing.allocator, failNums).allocator;
+        var allocator = std.testing.FailingAllocator.init(std.testing.allocator, failNums).allocator();
         const linesOrErr = parseInput(testInput, allocator);
         if (linesOrErr) |lines| {
             for (lines) |line| {

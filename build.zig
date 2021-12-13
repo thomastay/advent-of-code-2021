@@ -8,13 +8,13 @@ const should_link_libc = false;
 
 const test_files = [_][]const u8{
     // list any zig files with tests here
-    // "src/day01.zig",
-    // "src/day02.zig",
-    // "src/day03.zig",
-    // "src/day04.zig",
-    // "src/day05.zig",
-    // "src/day06.zig",
-    // "src/day08.zig",
+    "src/day01.zig",
+    "src/day02.zig",
+    "src/day03.zig",
+    "src/day04.zig",
+    "src/day05.zig",
+    "src/day06.zig",
+    "src/day08.zig",
     "src/day09.zig",
 };
 

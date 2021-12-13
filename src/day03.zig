@@ -67,7 +67,7 @@ fn calcGamma(input: []const u8) !u32 {
 
 // -------------- Part 2 -----------------
 
-fn getSlices(input: []const u8, allocator: *Allocator) !ArrayList([]const u8) {
+fn getSlices(input: []const u8, allocator: Allocator) !ArrayList([]const u8) {
     var result = ArrayList([]const u8).init(allocator);
 
     var start: usize = 0;
@@ -77,7 +77,7 @@ fn getSlices(input: []const u8, allocator: *Allocator) !ArrayList([]const u8) {
     return result;
 }
 
-fn co2Rating(input: []const u8, allocator: *Allocator) !u32 {
+fn co2Rating(input: []const u8, allocator: Allocator) !u32 {
     var slices = try getSlices(input, allocator);
     defer slices.deinit();
 
@@ -100,7 +100,7 @@ fn co2Rating(input: []const u8, allocator: *Allocator) !u32 {
     unreachable;
 }
 
-fn oxygenRating(input: []const u8, allocator: *Allocator) !u32 {
+fn oxygenRating(input: []const u8, allocator: Allocator) !u32 {
     var slices = try getSlices(input, allocator);
     defer slices.deinit();
 

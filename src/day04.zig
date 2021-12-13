@@ -83,7 +83,7 @@ const BingoInput = struct {
     }
 };
 
-fn parseInput(input: []const u8, allocator: *Allocator) !BingoInput {
+fn parseInput(input: []const u8, allocator: Allocator) !BingoInput {
     var nums = ArrayList(u32).init(allocator);
     errdefer nums.deinit();
     var boards = ArrayList(BingoBoard).init(allocator);

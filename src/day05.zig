@@ -55,7 +55,7 @@ const LineSegment = struct {
     }
 };
 
-fn parseInput(input: []const u8, allocator: *Allocator) !ArrayList(LineSegment) {
+fn parseInput(input: []const u8, allocator: Allocator) !ArrayList(LineSegment) {
     var lines = ArrayList(LineSegment).init(allocator);
     errdefer lines.deinit();
 
@@ -182,7 +182,7 @@ fn countOverlaps(pointsSeen: *PointsSet, a1: u16, a2: u16, b1: u16, b2: u16, l1:
 // Part 1
 // Straight lines simplifies this a lot, we now have that only horizontal lines can intersect with vertical lines
 // and with themselves
-fn numIntersectionsStraight(horizontalLines: []LineSegment, verticalLines: []LineSegment, allocator: *Allocator) !u32 {
+fn numIntersectionsStraight(horizontalLines: []LineSegment, verticalLines: []LineSegment, allocator: Allocator) !u32 {
     var pointsSeen = PointsSet.init(allocator);
     defer pointsSeen.deinit();
 
@@ -290,7 +290,7 @@ fn debugPrintGrid(grid: []u16, dimensions: GridDimensions) void {
     std.debug.print("\n", .{});
 }
 
-fn partTwo(lines: []LineSegment, allocator: *Allocator) !u32 {
+fn partTwo(lines: []LineSegment, allocator: Allocator) !u32 {
     const dimensions = computeGridDimensions(lines);
     var grid = try allocator.alloc(u16, dimensions.width * dimensions.height);
     defer allocator.free(grid);

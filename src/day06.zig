@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 
 // Returns a list of ages
 // The input is a comma separated list of ages
-fn parseInput(input: []const u8, allocator: *Allocator) !ArrayList(u8) {
+fn parseInput(input: []const u8, allocator: Allocator) !ArrayList(u8) {
     var result = ArrayList(u8).init(allocator);
     var start: usize = 0;
     while (std.mem.indexOfAnyPos(u8, input, start, &.{ ',', '\n' })) |end| : (start = end + 1) {

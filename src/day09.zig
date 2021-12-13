@@ -28,8 +28,8 @@ fn partOne(grid: Input) usize {
     return result;
 }
 
-fn partTwo(grid: Input, allocator: *Allocator) !usize {
-    var visited = try BitSet.initEmpty(grid.items.len, allocator);
+fn partTwo(grid: Input, allocator: Allocator) !usize {
+    var visited = try BitSet.initEmpty(allocator, grid.items.len);
     defer visited.deinit();
 
     // the last 3 are the top 3 basins, the first one is scratch space
@@ -80,7 +80,7 @@ const Input = struct {
     nRows: usize,
     nCols: usize,
 };
-fn parseInput(input: Str, allocator: *Allocator) !Input {
+fn parseInput(input: Str, allocator: Allocator) !Input {
     var lines = ArrayList(u8).init(allocator);
     errdefer lines.deinit();
     const nCols = std.mem.indexOfScalar(u8, input, '\n').?;
