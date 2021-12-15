@@ -99,11 +99,11 @@ pub fn main() !void {
     // Standard boilerplate for Aoc problems
     const stdout = std.io.getStdOut().writer();
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    var gpaAllocator = &gpa.allocator;
+    var gpaAllocator = gpa.allocator();
     defer assert(!gpa.deinit()); // Check for memory leaks
     var arena = std.heap.ArenaAllocator.init(gpaAllocator);
     defer arena.deinit();
-    var allocator = &arena.allocator; // use an arena
+    var allocator = arena.allocator(); // use an arena
 
     const grid = try parseInput(inputFile, allocator);
     try stdout.print("Part1: {d}\nPart2: {d}", .{ partOne(grid), try partTwo(grid, allocator) });
