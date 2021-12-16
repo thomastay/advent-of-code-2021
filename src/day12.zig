@@ -36,23 +36,28 @@ const CaveType = enum { Big, Small };
 const Input = struct {
     caves: []CaveType,
     caveNames: []Str,
-    edges: [][2]usize,
+    adjacency: [][]usize,
     start: usize,
     end: usize,
+    allocator: Allocator,
 
-    pub fn deinit(self: @This(), allocator: Allocator) void {
-        allocator.free(self.caves);
-        allocator.free(self.edges);
-        allocator.free(self.caveNames);
+    pub fn deinit(self: @This()) void {
+        self.allocator.free(self.caves);
+        self.allocator.free(self.caveNames);
+        for (self.adjacency) |nodes| {
+            self.allocator.free(nodes);
+        }
+        self.allocator.free(self.adjacency);
     }
 
     // printf implementation
     pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("Start: {s}, End: {s}\n", .{ self.caveNames[self.start], self.caveNames[self.end] });
-        for (self.edges) |edge| {
-            const from = self.caveNames[edge[0]];
-            const to = self.caveNames[edge[1]];
-            try writer.print("{s} - {s}\n", .{ from, to });
+        try writer.print("Start: {s}, End: {s}\n{any}", .{ self.caveNames[self.start], self.caveNames[self.end], self.adjacency });
+        for (self.adjacency) |neighbors, from| {
+            for (neighbors) |neighbor| {
+                try writer.print("{s} - {s}\n", .{ self.caveNames[from], self.caveNames[neighbor] });
+            }
+            try writer.print("\n", .{});
         }
     }
 };
@@ -60,16 +65,18 @@ const Input = struct {
 fn parseInput(input: Str, allocator: Allocator) !Input {
     var caves = ArrayList(CaveType).init(allocator);
     errdefer caves.deinit();
-    var edges = ArrayList([2]usize).init(allocator);
-    errdefer edges.deinit();
     var caveNames = ArrayList(Str).init(allocator);
     errdefer caveNames.deinit();
     var caveNameToNum = StrMap(usize).init(allocator);
     defer caveNameToNum.deinit();
+    var adjacency = ArrayList(ArrayList(usize)).init(allocator);
+    defer adjacency.deinit();
+    errdefer for (adjacency.items) |neighbors| {
+        neighbors.deinit();
+    };
 
     var start: usize = 0;
     var end: usize = 0;
-
     var it = tokenize(u8, input, "\n");
     while (it.next()) |line| {
         var caveIt = tokenize(u8, line, "-");
@@ -80,6 +87,7 @@ fn parseInput(input: Str, allocator: Allocator) !Input {
             } else {
                 const num = caveNames.items.len;
                 try caveNames.append(name);
+                try caveNameToNum.put(name, num);
                 if (std.ascii.isUpper(name[0])) {
                     try caves.append(.Big);
                 } else {
@@ -100,6 +108,7 @@ fn parseInput(input: Str, allocator: Allocator) !Input {
             } else {
                 const num = caveNames.items.len;
                 try caveNames.append(name);
+                try caveNameToNum.put(name, num);
                 if (std.ascii.isUpper(name[0])) {
                     try caves.append(.Big);
                 } else {
@@ -117,14 +126,27 @@ fn parseInput(input: Str, allocator: Allocator) !Input {
         const from = std.math.min(first, second);
         const to = std.math.max(first, second);
 
-        try edges.append([2]usize{ from, to });
+        if (from >= adjacency.items.len) {
+            // allocate and initialize more space
+            var i = adjacency.items.len;
+            try adjacency.resize(from + 1);
+            while (i <= from) : (i += 1) {
+                adjacency.items[i] = ArrayList(usize).init(allocator);
+            }
+        }
+        try adjacency.items[from].append(to);
+    }
+    const adjacencySlices = try allocator.alloc([]usize, adjacency.items.len);
+    for (adjacencySlices) |*slic, i| {
+        slic.* = adjacency.items[i].toOwnedSlice();
     }
     return Input{
         .caves = caves.toOwnedSlice(),
         .caveNames = caveNames.toOwnedSlice(),
-        .edges = edges.toOwnedSlice(),
+        .adjacency = adjacencySlices,
         .start = start,
         .end = end,
+        .allocator = allocator,
     };
 }
 
@@ -141,6 +163,6 @@ test "parse input" {
     ;
     var allocator = std.testing.allocator;
     const input = try parseInput(testInput, allocator);
-    defer input.deinit(allocator);
-    print("{any}\n", .{input});
+    defer input.deinit();
+    print("\n{any}\n", .{input});
 }
