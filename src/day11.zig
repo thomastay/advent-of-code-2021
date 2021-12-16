@@ -120,11 +120,7 @@ const Input = struct {
 
     pub fn clone(self: @This(), allocator: Allocator) !@This() {
         const items = try allocator.dupe(i8, self.items);
-        return @This(){
-            .items = items,
-            .nRows = self.nRows,
-            .nCols = self.nCols,
-        };
+        return @This(){ .items = items, .nRows = self.nRows, .nCols = self.nCols };
     }
 
     pub fn deinit(self: @This(), allocator: Allocator) void {
