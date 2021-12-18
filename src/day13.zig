@@ -44,7 +44,6 @@ fn run(input: Str, allocator: Allocator, stdout: anytype) !void {
         }
         unreachable;
     };
-    print("{any}\n\n", .{colsAndRows});
     var nRows = colsAndRows[0];
     var nCols = colsAndRows[1];
     const originalNCols = colsAndRows[1];
@@ -53,7 +52,6 @@ fn run(input: Str, allocator: Allocator, stdout: anytype) !void {
     var dots = try BitSet.initEmpty(allocator, nRows * nCols);
     defer dots.deinit(); // no defer since we use an arena
     var p1: usize = 0;
-    const p2 = 0;
 
     var it = tokenize(u8, input, "\n");
     while (it.next()) |line| {
@@ -73,11 +71,11 @@ fn run(input: Str, allocator: Allocator, stdout: anytype) !void {
                 .X => nCols = lineNum,
                 .Y => nRows = lineNum,
             }
-            p1 = countScore(dots, nCols, nRows, originalNCols);
+            if (p1 == 0) p1 = countScore(dots, nCols, nRows, originalNCols);
         }
     }
+    try stdout.print("Part1: {d}\nPart2:\n\n", .{p1});
     try printGrid(stdout, dots, nCols, nRows, originalNCols);
-    try stdout.print("Part1: {d}\nPart2: {d}", .{ p1, p2 });
 }
 
 pub fn main() !void {
