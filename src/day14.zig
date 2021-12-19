@@ -108,8 +108,6 @@ fn runSubstitutions(input: Str, allocator: Allocator, nRounds: u32) !usize {
             }
         }
         std.mem.swap([]TwoCharSubstitution, &substitutions, &substitutionsNew);
-        // print("After round {d}\n", .{round + 1});
-        // printSubstitutions(substitutions);
     }
 
     // ============= Step 4: count min max ================
@@ -145,9 +143,9 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var gpaAllocator = gpa.allocator();
     defer assert(!gpa.deinit()); // Check for memory leaks
-    // var arena = std.heap.ArenaAllocator.init(gpaAllocator);
-    // defer arena.deinit();
-    var allocator = gpaAllocator;
+    var arena = std.heap.ArenaAllocator.init(gpaAllocator);
+    defer arena.deinit();
+    var allocator = arena.allocator();
 
     try stdout.print("Part 2:{d}\n", .{try runSubstitutions(inputFile, allocator, 40)});
 }
