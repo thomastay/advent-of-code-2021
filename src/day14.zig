@@ -3,7 +3,7 @@
 const inputFile = @embedFile("./input/day14.txt");
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const List = std.ArrayList;
 const Str = []const u8;
 const BitSet = std.DynamicBitSet;
 const StrMap = std.StringHashMap;
@@ -20,32 +20,52 @@ fn println(x: Str) void {
     print("{s}\n", .{x});
 }
 
-const TemplateKey = struct {
-    keyA: u8,
-    keyB: u8,
-
-    pub fn asU64(self: @This()) u64 {
-        return (@as(u64, self.keyA) << 8) + self.keyB;
-    }
+const TwoCharSubstitution = struct {
+    substitute: u8,
+    count: u64,
 
     // printf implementation
     pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("{c}{c}", .{ self.keyA, self.keyB });
+        if (self.count > 0 or self.substitute != 0) {
+            try writer.print("({d}) -> {c}", .{ self.count, self.substitute });
+        }
     }
 };
 
-const TemplateKeyHasher = struct {
-    pub fn eql(_: @This(), left: TemplateKey, right: TemplateKey) bool {
-        return left.asU64() == right.asU64();
-    }
-    pub fn hash(_: @This(), x: TemplateKey) u64 {
-        return x.asU64();
-    }
-};
+const numUppercaseLetters = 26;
 
-fn partOne(input: Str, allocator: Allocator) !usize {
-    var substitutionRules = HashMap(TemplateKey, u8, TemplateKeyHasher, std.hash_map.default_max_load_percentage).init(allocator);
-    defer substitutionRules.deinit();
+fn toIndex(charA: u8, charB: u8) usize {
+    return (@as(usize, (charA - 'A')) * numUppercaseLetters) + (charB - 'A');
+}
+
+fn toIndexZeroBased(charA: u8, charB: u8) usize {
+    return (@as(usize, charA) * numUppercaseLetters) + charB;
+}
+
+fn fromIndex(pos: usize) struct { a: u8, b: u8 } {
+    const a = @intCast(u8, pos / 26) + 'A';
+    const b = @intCast(u8, pos % 26) + 'A';
+    return .{ .a = a, .b = b };
+}
+
+fn printSubstitutions(substitutions: []TwoCharSubstitution) void {
+    for (substitutions) |sub, pos| {
+        if (sub.count > 0) {
+            const temp = fromIndex(pos);
+            const a = temp.a;
+            const b = temp.b;
+
+            print("{c}{c}({d}) -> {c}\n", .{ a, b, sub.count, sub.substitute });
+        }
+    }
+}
+
+/// New algorithm thanks to my friend VVHack
+/// See the old algorithm in the Git history prior to this commit
+fn runSubstitutions(input: Str, allocator: Allocator, nRounds: u32) !usize {
+    var substitutions = try allocator.alloc(TwoCharSubstitution, numUppercaseLetters * numUppercaseLetters);
+    defer allocator.free(substitutions);
+    std.mem.set(TwoCharSubstitution, substitutions, .{ .substitute = 0, .count = 0 });
 
     // ============= Step 1: parse ================
     var it = tokenize(u8, input, "\n");
@@ -54,68 +74,66 @@ fn partOne(input: Str, allocator: Allocator) !usize {
     // substitution rules
     while (it.next()) |line| {
         assert(line[3] == '-'); // sanity check
-        const key = TemplateKey{ .keyA = line[0], .keyB = line[1] };
+        const idx = toIndex(line[0], line[1]);
         const valPos = comptime "AA -> ".len;
-        const val = line[valPos];
-        try substitutionRules.putNoClobber(key, val);
+        substitutions[idx].substitute = line[valPos];
     }
-    // ============= Step 2: substitute ================
 
-    // For the initial run, don't need to duplicate memory
-    var inStr = try ArrayList(u8).initCapacity(allocator, initialStr.len * 2);
-    defer inStr.deinit();
+    // ============= Step 2: generate counts ================
+    const lastChar = initialStr[initialStr.len - 1]; // special case the last char as it never gets substituted
     for (initialStr) |c, i| {
-        inStr.appendAssumeCapacity(c);
+        // chunk every two char
         if (i == initialStr.len - 1) break;
-
-        const pair = TemplateKey{ .keyA = c, .keyB = initialStr[i + 1] };
-        if (substitutionRules.get(pair)) |substitution| {
-            inStr.appendAssumeCapacity(substitution);
-        }
+        const idx = toIndex(c, initialStr[i + 1]);
+        substitutions[idx].count += 1;
     }
-
-    var round: usize = 1;
-    while (round < 40) : (round += 1) {
-        print("Round: {d} with len {d}\n", .{ round, inStr.items.len });
-        var outStr = try ArrayList(u8).initCapacity(allocator, inStr.items.len * 2);
-        defer outStr.deinit();
-        for (inStr.items) |c, i| {
-            outStr.appendAssumeCapacity(c);
-            if (i == inStr.items.len - 1) break; // we work in pairs
-
-            const pair = TemplateKey{ .keyA = c, .keyB = inStr.items[i + 1] };
-            if (substitutionRules.get(pair)) |substitution| {
-                outStr.appendAssumeCapacity(substitution);
-            }
-        }
-        // swap and deinit
-        std.mem.swap(ArrayList(u8), &inStr, &outStr);
-    }
-    const finalStr = inStr.items;
 
     // ============= Step 3: substitute ================
-    var counts = Map(u8, usize).init(allocator);
-    try counts.ensureTotalCapacity(26);
-    defer counts.deinit();
+    var round: usize = 0;
+    while (round < nRounds) : (round += 1) {
+        // for each two character list, run the substitution and add it to the substitutionsNew
+        var substitutionsNew = try allocator.dupe(TwoCharSubstitution, substitutions);
+        defer allocator.free(substitutionsNew);
 
-    for (finalStr) |c| {
-        const res = counts.getOrPutAssumeCapacity(c - 'A');
-        if (res.found_existing) {
-            res.value_ptr.* += 1;
-        } else {
-            res.value_ptr.* = 1;
+        for (substitutions) |substitution, pos| {
+            if (substitution.count > 0 and substitution.substitute != 0) {
+                // make the substitution
+                const temp = fromIndex(pos);
+                const charA = temp.a;
+                const charB = temp.b;
+
+                substitutionsNew[pos].count -= substitution.count;
+                substitutionsNew[toIndex(charA, substitution.substitute)].count += substitution.count;
+                substitutionsNew[toIndex(substitution.substitute, charB)].count += substitution.count;
+            }
         }
+        std.mem.swap([]TwoCharSubstitution, &substitutions, &substitutionsNew);
+        // print("After round {d}\n", .{round + 1});
+        // printSubstitutions(substitutions);
     }
+
+    // ============= Step 4: count min max ================
+    var counts = try allocator.alloc(usize, numUppercaseLetters);
+    defer allocator.free(counts);
+    std.mem.set(usize, counts, 0);
+
+    for (substitutions) |substitute, pos| {
+        const temp = fromIndex(pos);
+        const charA = temp.a - 'A';
+        counts[charA] += substitute.count;
+    }
+    counts[lastChar - 'A'] += 1;
+
     var max: usize = 0;
     var min: usize = std.math.maxInt(usize);
-    var countsIt = counts.iterator();
-    while (countsIt.next()) |res| {
-        const val = res.value_ptr.*;
-        if (max < val) {
-            max = val;
-        }
-        if (val < min) {
-            min = val;
+    for (counts) |val| {
+        if (val != 0) {
+            if (max < val) {
+                max = val;
+            }
+            if (val < min) {
+                min = val;
+            }
         }
     }
     return max - min;
@@ -131,10 +149,10 @@ pub fn main() !void {
     // defer arena.deinit();
     var allocator = gpaAllocator;
 
-    try stdout.print("{d}\n", .{try partOne(inputFile, allocator)});
+    try stdout.print("Part 2:{d}\n", .{try runSubstitutions(inputFile, allocator, 40)});
 }
 
-test "Part 1" {
+test "Part 1 and 2" {
     const testInput =
         \\NNCB
         \\
@@ -156,5 +174,7 @@ test "Part 1" {
         \\CN -> C
         \\
     ;
-    try std.testing.expectEqual(@as(usize, 1588), try partOne(testInput, std.testing.allocator));
+    try std.testing.expectEqual(@as(usize, 5), try runSubstitutions(testInput, std.testing.allocator, 2));
+    try std.testing.expectEqual(@as(usize, 1588), try runSubstitutions(testInput, std.testing.allocator, 10));
+    try std.testing.expectEqual(@as(usize, 480563), try runSubstitutions(testInput, std.testing.allocator, 18));
 }
