@@ -36,9 +36,8 @@ const QueueDatum = struct {
 };
 
 fn gridDjikstra(input: Input, allocator: Allocator) !u32 {
-    var visited = try allocator.alloc(u32, input.items.len);
-    defer allocator.free(visited);
-    std.mem.set(u32, visited, 0);
+    var visited = try BitSet.initEmpty(allocator, input.items.len);
+    defer visited.deinit();
     var queue = PriorityQueue(QueueDatum, QueueDatum.compare).init(allocator);
     defer queue.deinit();
     const nCols = @intCast(u32, input.nCols);
@@ -46,7 +45,7 @@ fn gridDjikstra(input: Input, allocator: Allocator) !u32 {
     // ============= Step 1: initialize start and kick off the queue ================
     // (0, 0) is start
     const startPos = 0;
-    visited[startPos] = std.math.maxInt(u32); // ensures it doesn't get re-visited
+    visited.set(startPos); // ensures it doesn't get re-visited
     // (0, 1) and (1, 0)
     try queue.add(.{ .size = input.items[startPos + 1], .pos = startPos + 1 });
     try queue.add(.{ .size = input.items[startPos + nCols], .pos = startPos + nCols });
@@ -59,9 +58,9 @@ fn gridDjikstra(input: Input, allocator: Allocator) !u32 {
             // reached the end!
             return w;
         }
-        if (visited[pos] == 0) {
+        if (!visited.isSet(pos)) {
             // mark the node as visited and mark it with the current size
-            visited[pos] = w;
+            visited.set(pos);
             // add all of the children to the queue
             const row = pos / nCols;
             const col = pos % nCols;
