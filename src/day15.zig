@@ -149,3 +149,12 @@ fn wrapAround(x: u8, inc: usize) u8 {
     const inc_ = @intCast(u8, inc);
     return ((x + inc_ - 1) % 9) + 1;
 }
+
+test "part 2" {
+    var allocator = std.testing.allocator;
+    const input = try parseInput(inputFile, allocator);
+    defer input.deinit();
+    const expandedInput = try expandInput(input, 5);
+    defer expandedInput.deinit();
+    try std.testing.expectEqual(@as(usize, 2825), try gridDjikstra(expandedInput, allocator));
+}
