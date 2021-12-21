@@ -21,39 +21,31 @@ fn println(x: Str) void {
     print("{s}\n", .{x});
 }
 
-const PacketType = enum {
+const PacketType = enum(u3) {
+    Sum,
+    Product,
+    Minimum,
+    Maximum,
     Lit,
-    Operator,
-};
-const PacketData = union(PacketType) {
-    /// The literal value
-    Lit: u64,
-    /// Pointers into the Packet array
-    Operator: []usize,
-};
-
-const Packet = struct {
-    version: u3,
-    data: PacketData,
-
-    pub fn deinit(self: @This(), allocator: Allocator) void {
-        switch (self.data) {
-            .Lit => return,
-            .Operator => |d| allocator.free(d),
-        }
-    }
+    Greater,
+    Less,
+    Equal,
 };
 
 const BitStreamWithPos = struct {
     stream: std.io.BitReader(.Big, std.io.FixedBufferStream(Str).Reader),
     numBitsRead: usize,
 };
+const ParsePacketResult = struct {
+    versionSum: usize,
+    val: usize,
+};
 
 /// The packet parsing forms a state machine
 /// parsePackets --> parsePacketInner <--------> parseOperator
 ///                                  |----------> parseLit
 /// TODO write it non recursively
-fn parsePackets(input: Input) !usize {
+fn parsePackets(input: Input) !ParsePacketResult {
     // Zig comes with bit reading built in :)
     var buf = std.io.fixedBufferStream(input.items);
     var bitStream = .{
@@ -63,35 +55,30 @@ fn parsePackets(input: Input) !usize {
     // TODO:For fun, trying to write this parser non-recursively
     // var parsingState = List(PacketType).init(allocator);
     const result = try parsePacketInner(&bitStream);
-    return result.versionSum;
+    return result;
 }
 
 const PacketParseError = error{PacketIncomplete} || std.io.FixedBufferStream(Str).ReadError;
-const ParsePacketResult = struct {
-    versionSum: usize,
-};
 fn parsePacketInner(bitStream: *BitStreamWithPos) PacketParseError!ParsePacketResult {
     var outBits: usize = undefined;
-    var version = try bitStream.stream.readBits(usize, 3, &outBits);
-    print("version: {d}\n", .{version});
+    const version = try bitStream.stream.readBits(usize, 3, &outBits);
     if (outBits != 3) return error.PacketIncomplete;
     bitStream.numBitsRead += outBits;
 
-    const typeId = try bitStream.stream.readBits(u3, 3, &outBits);
+    const typeId: u3 = try bitStream.stream.readBits(u3, 3, &outBits);
     if (outBits != 3) return error.PacketIncomplete;
     bitStream.numBitsRead += outBits;
-    const packetType: PacketType = switch (typeId) {
-        4 => .Lit,
-        else => .Operator,
-    };
+    const packetType = @intToEnum(PacketType, typeId);
     switch (packetType) {
-        .Lit => print("Literal: {d}\n", .{try parseLit(bitStream)}),
-        .Operator => {
-            const result = try parseOperator(bitStream);
-            version += result.versionSum;
+        .Lit => {
+            const val = try parseLit(bitStream);
+            return ParsePacketResult{ .versionSum = version, .val = val };
+        },
+        else => {
+            const result = try parseOperator(bitStream, packetType);
+            return ParsePacketResult{ .versionSum = version + result.versionSum, .val = result.val };
         },
     }
-    return ParsePacketResult{ .versionSum = version };
 }
 
 const litContinueMask: u5 = 0b10000;
@@ -112,10 +99,44 @@ fn parseLit(bitStream: *BitStreamWithPos) !u64 {
     }
 }
 
-fn parseOperator(bitStream: *BitStreamWithPos) !ParsePacketResult {
-    var versionSum: usize = 0;
-    var outBits: usize = undefined;
+/// So we don't have to allocate memory
+const OperatorAccumulator = struct {
+    type: PacketType,
+    currVal: ?usize,
 
+    const Self = @This();
+
+    pub fn init(pktType: PacketType) Self {
+        return Self{
+            .type = pktType,
+            .currVal = null,
+        };
+    }
+
+    pub fn accumulate(self: *Self, val: usize) void {
+        if (self.currVal) |curr| {
+            switch (self.type) {
+                .Sum => self.currVal = curr + val,
+                .Product => self.currVal = curr * val,
+                .Minimum => self.currVal = std.math.min(curr, val),
+                .Maximum => self.currVal = std.math.max(curr, val),
+                .Lit => unreachable,
+                // TODO should find some way to make this panic if given more than two value
+                .Greater => self.currVal = if (curr > val) 1 else 0,
+                .Less => self.currVal = if (curr < val) 1 else 0,
+                .Equal => self.currVal = if (curr == val) 1 else 0,
+            }
+        } else {
+            self.currVal = val;
+        }
+    }
+};
+
+fn parseOperator(bitStream: *BitStreamWithPos, packetType: PacketType) !ParsePacketResult {
+    var versionSum: usize = 0;
+    var accumulator = OperatorAccumulator.init(packetType);
+
+    var outBits: usize = undefined;
     const lengthTypeId = try bitStream.stream.readBits(u1, 1, &outBits);
     if (outBits != 1) return error.PacketIncomplete;
     bitStream.numBitsRead += outBits;
@@ -125,12 +146,11 @@ fn parseOperator(bitStream: *BitStreamWithPos) !ParsePacketResult {
         const len = try bitStream.stream.readBits(u15, 15, &outBits);
         if (outBits != 15) return error.PacketIncomplete;
         bitStream.numBitsRead += outBits;
-        print("Parsing the next {d} bits as the number of succeeding bits\n", .{len});
         const expectedPos = bitStream.numBitsRead + len;
         while (bitStream.numBitsRead < expectedPos) {
-            print("Current pos: {d} \n", .{bitStream.numBitsRead});
             const result = try parsePacketInner(bitStream);
             versionSum += result.versionSum;
+            accumulator.accumulate(result.val);
         }
         assert(bitStream.numBitsRead == expectedPos);
     } else {
@@ -138,15 +158,14 @@ fn parseOperator(bitStream: *BitStreamWithPos) !ParsePacketResult {
         const numPackets = try bitStream.stream.readBits(u11, 11, &outBits);
         if (outBits != 11) return error.PacketIncomplete;
         bitStream.numBitsRead += outBits;
-        print("Parsing the next {d} packets\n", .{numPackets});
         var i: u11 = 0;
         while (i < numPackets) : (i += 1) {
-            print("Parsed {d} packets \n", .{i});
             const result = try parsePacketInner(bitStream);
             versionSum += result.versionSum;
+            accumulator.accumulate(result.val);
         }
     }
-    return ParsePacketResult{ .versionSum = versionSum };
+    return ParsePacketResult{ .versionSum = versionSum, .val = accumulator.currVal.? };
 }
 
 pub fn main() !void {
@@ -160,7 +179,8 @@ pub fn main() !void {
     var allocator = arena.allocator();
 
     const input = try parseInput(inputFile, allocator);
-    try stdout.print("Part 1: {d}\n", .{try parsePackets(input)});
+    const result = try parsePackets(input);
+    try stdout.print("Part 1: {d}Part2: {d}\n", .{ result.versionSum, result.val });
 }
 
 const Input = struct {
@@ -187,7 +207,7 @@ test "Part 1-1" {
 
     const input = try parseInput(testInput, allocator);
     defer input.deinit();
-    try std.testing.expectEqual(@as(usize, 9), try parsePackets(input));
+    try std.testing.expectEqual(@as(usize, 9), (try parsePackets(input)).versionSum);
 }
 
 test "Part 1-2" {
@@ -196,7 +216,7 @@ test "Part 1-2" {
 
     const input = try parseInput(testInput, allocator);
     defer input.deinit();
-    try std.testing.expectEqual(@as(usize, 14), try parsePackets(input));
+    try std.testing.expectEqual(@as(usize, 14), (try parsePackets(input)).versionSum);
 }
 
 test "Part 1-3" {
@@ -205,7 +225,7 @@ test "Part 1-3" {
 
     const input = try parseInput(testInput, allocator);
     defer input.deinit();
-    try std.testing.expectEqual(@as(usize, 16), try parsePackets(input));
+    try std.testing.expectEqual(@as(usize, 16), (try parsePackets(input)).versionSum);
 }
 
 test "Part 1-4" {
@@ -214,7 +234,7 @@ test "Part 1-4" {
 
     const input = try parseInput(testInput, allocator);
     defer input.deinit();
-    try std.testing.expectEqual(@as(usize, 12), try parsePackets(input));
+    try std.testing.expectEqual(@as(usize, 12), (try parsePackets(input)).versionSum);
 }
 
 test "Part 1-5" {
@@ -223,7 +243,7 @@ test "Part 1-5" {
 
     const input = try parseInput(testInput, allocator);
     defer input.deinit();
-    try std.testing.expectEqual(@as(usize, 23), try parsePackets(input));
+    try std.testing.expectEqual(@as(usize, 23), (try parsePackets(input)).versionSum);
 }
 
 test "Part 1-6" {
@@ -232,5 +252,77 @@ test "Part 1-6" {
 
     const input = try parseInput(testInput, allocator);
     defer input.deinit();
-    try std.testing.expectEqual(@as(usize, 31), try parsePackets(input));
+    try std.testing.expectEqual(@as(usize, 31), (try parsePackets(input)).versionSum);
+}
+
+test "Part 2-1" {
+    var allocator = std.testing.allocator;
+    const testInput = "C200B40A82";
+
+    const input = try parseInput(testInput, allocator);
+    defer input.deinit();
+    try std.testing.expectEqual(@as(usize, 3), (try parsePackets(input)).val);
+}
+
+test "Part 2-2" {
+    var allocator = std.testing.allocator;
+    const testInput = "04005AC33890";
+
+    const input = try parseInput(testInput, allocator);
+    defer input.deinit();
+    try std.testing.expectEqual(@as(usize, 54), (try parsePackets(input)).val);
+}
+
+test "Part 2-3" {
+    var allocator = std.testing.allocator;
+    const testInput = "880086C3E88112";
+
+    const input = try parseInput(testInput, allocator);
+    defer input.deinit();
+    try std.testing.expectEqual(@as(usize, 7), (try parsePackets(input)).val);
+}
+
+test "Part 2-4" {
+    var allocator = std.testing.allocator;
+    const testInput = "CE00C43D881120";
+
+    const input = try parseInput(testInput, allocator);
+    defer input.deinit();
+    try std.testing.expectEqual(@as(usize, 9), (try parsePackets(input)).val);
+}
+
+test "Part 2-5" {
+    var allocator = std.testing.allocator;
+    const testInput = "D8005AC2A8F0";
+
+    const input = try parseInput(testInput, allocator);
+    defer input.deinit();
+    try std.testing.expectEqual(@as(usize, 1), (try parsePackets(input)).val);
+}
+
+test "Part 2-6" {
+    var allocator = std.testing.allocator;
+    const testInput = "F600BC2D8F";
+
+    const input = try parseInput(testInput, allocator);
+    defer input.deinit();
+    try std.testing.expectEqual(@as(usize, 0), (try parsePackets(input)).val);
+}
+
+test "Part 2-7" {
+    var allocator = std.testing.allocator;
+    const testInput = "9C005AC2F8F0";
+
+    const input = try parseInput(testInput, allocator);
+    defer input.deinit();
+    try std.testing.expectEqual(@as(usize, 0), (try parsePackets(input)).val);
+}
+
+test "Part 2-8" {
+    var allocator = std.testing.allocator;
+    const testInput = "9C0141080250320F1802104A08";
+
+    const input = try parseInput(testInput, allocator);
+    defer input.deinit();
+    try std.testing.expectEqual(@as(usize, 1), (try parsePackets(input)).val);
 }
