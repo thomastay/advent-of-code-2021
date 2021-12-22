@@ -45,7 +45,7 @@ const inputFile = TargetBox{
     .endY = -79,
 };
 
-/// Solves for the largest y where T(y) >= x
+/// Solves for the smallest y where T(y) >= x
 fn inverseTriangularGeq(x: i32) i32 {
     assert(x >= 0);
     // n^2 + n - 2*x = 0;
