@@ -50,8 +50,8 @@ fn inverseTriangularGeq(x: i32) i32 {
     assert(x >= 0);
     // n^2 + n - 2*x = 0;
     // real solution for n is (-1 + sqrt(1 + 8 * x)) / 2.0
-    const n: f32 = (std.math.sqrt(@intToFloat(f32, 1 + 8 * x)) - 1.0) / 2.0;
-    return @floatToInt(i32, std.math.ceil(n));
+    const n: f32 = (@sqrt(@intToFloat(f32, 1 + 8 * x)) - 1.0) / 2.0;
+    return @floatToInt(i32, @ceil(n));
 }
 
 /// Simulates a single run of whether 
@@ -81,7 +81,6 @@ fn partTwo(target: TargetBox) usize {
     const maxY = (abs(target.startY) catch unreachable) - 1;
     const minX = inverseTriangularGeq(target.startX);
     const maxX = @divFloor(target.endX, 2) + 1;
-    print("min max X {d} {d}, min max Y {d} {d}\n", .{ minX, maxX, minY, maxY });
 
     var result = @intCast(usize, (target.endX - target.startX + 1) * (target.endY - target.startY + 1));
     var x = minX;
