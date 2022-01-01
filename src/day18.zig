@@ -49,27 +49,27 @@ const Node = union(enum) {
 
     const Self = @This();
 
-    fn parent(self: Self) ?*Node {
+    pub fn parent(self: Self) ?*Node {
         return switch (self) {
             .Leaf => |x| x.p,
             .Inner => |x| x.p,
         };
     }
 
-    fn setParent(self: *Self, newParent: *Node) void {
+    pub fn setParent(self: *Self, newParent: *Node) void {
         switch (self.*) {
             .Leaf => |*x| x.p = newParent,
             .Inner => |*x| x.p = newParent,
         }
     }
 
-    fn isLeaf(self: Self) bool {
+    pub fn isLeaf(self: Self) bool {
         return switch (self) {
             .Leaf => true,
             .Inner => false,
         };
     }
-    fn isPair(self: Self) bool {
+    pub fn isPair(self: Self) bool {
         switch (self) {
             .Leaf => return false,
             .Inner => |inn| {
@@ -98,7 +98,7 @@ const Node = union(enum) {
     }
 
     /// If this returns null, means that the node is currently the leftmost node
-    fn moveLeft(self: Self) ?*LeafNode {
+    pub fn moveLeft(self: Self) ?*LeafNode {
         // Walk up the parent chain until you reach the first parent with a different left child
         // from that left child, walk rightwards until you hit the end.
         var curr = &self;
@@ -111,7 +111,7 @@ const Node = union(enum) {
         return rightOf(leftOfParent);
     }
 
-    fn moveRight(self: Self) ?*LeafNode {
+    pub fn moveRight(self: Self) ?*LeafNode {
         // same as moveLeft, but mirrored
         var curr = &self;
         var p = self.parent();
@@ -127,7 +127,7 @@ const Node = union(enum) {
 ///     I                 L
 /// L  L L  ----> L+1
 ///
-fn explodePair(self: *Node, allocator: Allocator) !void {
+fn explodePair(self: *Node, allocator: Allocator) void {
     assert(self.isPair());
     const leftVal = self.Inner.l.Leaf.val; // safe since we check above
     const rightVal = self.Inner.r.Leaf.val; // safe since we check above
@@ -138,16 +138,34 @@ fn explodePair(self: *Node, allocator: Allocator) !void {
     if (self.moveRight()) |rOf| {
         rOf.val += rightVal;
     }
-    const parent = self.Inner.p.?; // exploding pairs must have a parent
-    const newNode = try makeLeaf(0, allocator);
+    const parent = self.Inner.p;
+    // free the children
+    allocator.destroy(self.Inner.l);
+    allocator.destroy(self.Inner.r);
+    // Overwrite self. Note that the old self is now invalid!
+    self.* = Node{ .Leaf = .{
+        .p = parent,
+        .val = 0,
+    } };
+}
 
-    if (self == parent.Inner.l) {
-        parent.Inner.l = newNode;
-    } else {
-        parent.Inner.r = newNode;
-    }
-    // free the current node
-    allocator.destroy(self);
+fn split(self: *Node, allocator: Allocator) !void {
+    assert(self.isLeaf());
+    const val = self.Leaf.val;
+    assert(val >= 10);
+    const leftVal = val / 2;
+    const rightVal = leftVal + @rem(val, 2);
+
+    const leftLeaf = try makeLeaf(leftVal, allocator);
+    const rightLeaf = try makeLeaf(rightVal, allocator);
+    const parent = self.Leaf.p;
+
+    // Overwrite self. Note that self.val / self.p are now invalid!
+    self.* = Node{ .Inner = .{
+        .p = parent,
+        .l = leftLeaf,
+        .r = rightLeaf,
+    } };
 }
 
 fn partOne(_: Str) usize {
@@ -187,6 +205,81 @@ fn makeLeaf(val: u64, allocator: Allocator) !*Node {
     return x;
 }
 
+// ----------------- Parser -----------------------
+
+/// [[1, 0], 0]
+fn parseSnailfishNumber(input: Str, allocator: Allocator) !*Node {
+    // essentially this is parsing a very limited subset of JSON.
+    var reader = std.io.fixedBufferStream(input).reader();
+    return parseNode(&reader, allocator);
+}
+
+const SnailfishReader = std.io.FixedBufferStream(Str).Reader;
+
+fn parseNode(reader: *SnailfishReader, allocator: Allocator) !*Node {
+    const firstByte = try reader.readByte();
+    return switch (firstByte) {
+        '0'...'9' => try makeLeaf(firstByte - '0', allocator),
+        '[' => try parsePair(reader, allocator),
+        else => unreachable,
+    };
+}
+fn parsePair(reader: *SnailfishReader, allocator: Allocator) error{ OutOfMemory, EndOfStream }!*Node {
+    const firstNode = try parseNode(reader, allocator);
+    assert((try reader.readByte()) == ',');
+    const secondNode = try parseNode(reader, allocator);
+    assert((try reader.readByte()) == ']');
+    return makePair(firstNode, secondNode, allocator);
+}
+
+test "Parse" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var allocator = arena.allocator();
+
+    const simple = "[1,[1,0]]";
+    const res = try parseSnailfishNumber(simple, allocator);
+    try std.testing.expectEqual(@as(u64, 1), res.Inner.l.Leaf.val);
+    try std.testing.expectEqual(@as(u64, 1), res.Inner.r.Inner.l.Leaf.val);
+    try std.testing.expectEqual(@as(u64, 0), res.Inner.r.Inner.r.Leaf.val);
+
+    const longer = "[[[[6,0],[8,2]],[[9,0],[8,7]]],[3,[6,[8,8]]]]";
+    _ = try parseSnailfishNumber(longer, allocator);
+}
+
+test "Parsed Explode Pair" {
+    //          p                     p
+    //       l2  p2   ==>      (l2+l)   0
+    //          l  r
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var allocator = arena.allocator();
+
+    const inputStr = "[7,[3,5]]";
+    const p = try parseSnailfishNumber(inputStr, allocator);
+
+    explodePair(p.Inner.r, allocator);
+    try std.testing.expectEqual(@as(u64, 3 + 7), p.Inner.l.Leaf.val);
+    try std.testing.expectEqual(@as(u64, 0), p.Inner.r.Leaf.val);
+}
+
+test "Parsed Split Pair" {
+    //          p                     p
+    //       l2  p2   ==>      (l2+l)   0
+    //          l  r
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var allocator = arena.allocator();
+
+    const inputStr = "[9,[3,5]]";
+    var p = try parseSnailfishNumber(inputStr, allocator);
+    p.Inner.l.Leaf.val += 6;
+
+    try split(p.Inner.l, allocator);
+    try std.testing.expectEqual(@as(u64, 7), p.Inner.l.Inner.l.Leaf.val);
+    try std.testing.expectEqual(@as(u64, 8), p.Inner.l.Inner.r.Leaf.val);
+}
+
 test "Explode Pair" {
     //          p                     p
     //       l2  p2   ==>      (l2+l)   0
@@ -201,7 +294,7 @@ test "Explode Pair" {
     const l2 = try makeLeaf(7, allocator);
     const p = try makePair(l2, p2, allocator);
 
-    try explodePair(p2, allocator);
+    explodePair(p2, allocator);
     try std.testing.expectEqual(@as(u64, 3 + 7), p.Inner.l.Leaf.val);
     try std.testing.expectEqual(@as(u64, 0), p.Inner.r.Leaf.val);
 }
@@ -231,7 +324,7 @@ test "Explode Pair complex" {
 
     _ = try makePair(p21, p22, allocator);
 
-    try explodePair(p32, allocator);
+    explodePair(p32, allocator);
     try std.testing.expectEqual(@as(u64, 31 + 41), l31.Leaf.val);
     try std.testing.expectEqual(@as(u64, 43 + 42), l43.Leaf.val);
     try std.testing.expectEqual(@as(u64, 0), p21.Inner.r.Leaf.val);
