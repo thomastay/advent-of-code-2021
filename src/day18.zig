@@ -22,16 +22,6 @@ fn println(x: Str) void {
     print("{s}\n", .{x});
 }
 
-// Valid trees:
-// L
-//
-//  I
-// L L
-//
-//   I
-//  I L
-// L L
-
 const LeafNode = struct {
     p: ?*Node,
     val: u64,
@@ -122,6 +112,67 @@ const Node = union(enum) {
         } else return null;
         return leftOf(rightOfParent);
     }
+
+    // ----------- Iterators ---------
+    const NodeAndDepth = struct {
+        node: *Node,
+        depth: u32,
+    };
+
+    const TreePreOrderIterator = struct {
+        stack: List(NodeAndDepth),
+
+        pub fn next(self: *@This()) !?NodeAndDepth {
+            if (self.stack.popOrNull()) |top| {
+                switch (top.node) {
+                    .Inner => |inn| {
+                        try self.stack.append(.{ .node = inn.r, .depth = top.depth + 1 });
+                        try self.stack.append(.{ .node = inn.l, .depth = top.depth + 1 });
+                    },
+                    .Leaf => continue,
+                }
+                return top;
+            } else return null;
+        }
+    };
+
+    /// Returns an iterator that walks over every node in the tree, as a pre-order traversal.
+    fn treePreOrderIterator(root: *Self, allocator: Allocator) !TreePreOrderIterator {
+        const stack = List(NodeAndDepth).init(Allocator);
+        try stack.append(.{ .node = root, .depth = 0 });
+        return TreePreOrderIterator{ .stack = stack };
+    }
+
+    pub const PairIterator = struct {
+        it: TreePreOrderIterator,
+        /// Returns the next pair in tree order, or null if no such pair exists.
+        /// When it returns a pair, the depth field on the iterator is a 0-indexed height of the pair
+        pub fn next() !?NodeAndDepth {
+            while (try it.next()) |pair| {
+                if (pair.node.isPair()) return pair;
+            } else return null;
+        }
+    };
+
+    // Iterates over all the pairs in the tree rooted at root
+    pub fn pairIterator(root: *Self, allocator: Allocator) !PairIterator {
+        return PairIterator{ .it = try treePreOrderIterator(root, allocator) };
+    }
+
+    pub const LeafIterator = struct {
+        it: TreePreOrderIterator,
+
+        pub fn next() !?*Node {
+            while (try it.next()) |pair| {
+                if (pair.node.isLeaf()) return pair.node;
+            } else return null;
+        }
+    };
+
+    // Iterates over all the leaves in the tree rooted at root
+    pub fn leafIterator(root: *Self, allocator: Allocator) !PairIterator {
+        return PairIterator{ .it = try treePreOrderIterator(root, allocator) };
+    }
 };
 
 ///     I                 L
@@ -149,7 +200,7 @@ fn explodePair(self: *Node, allocator: Allocator) void {
     } };
 }
 
-fn split(self: *Node, allocator: Allocator) !void {
+fn splitLeaf(self: *Node, allocator: Allocator) !void {
     assert(self.isLeaf());
     const val = self.Leaf.val;
     assert(val >= 10);
@@ -275,7 +326,7 @@ test "Parsed Split Pair" {
     var p = try parseSnailfishNumber(inputStr, allocator);
     p.Inner.l.Leaf.val += 6;
 
-    try split(p.Inner.l, allocator);
+    try splitLeaf(p.Inner.l, allocator);
     try std.testing.expectEqual(@as(u64, 7), p.Inner.l.Inner.l.Leaf.val);
     try std.testing.expectEqual(@as(u64, 8), p.Inner.l.Inner.r.Leaf.val);
 }
