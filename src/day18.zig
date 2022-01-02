@@ -2,6 +2,7 @@
 /// This problem is actually a binary tree problem, despite not looking exactly like one
 const inputFile = @embedFile("./input/day18.txt");
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const List = std.ArrayList;
 const Str = []const u8;
@@ -24,7 +25,7 @@ fn println(x: Str) void {
 
 const LeafNode = struct {
     p: ?*Node,
-    val: u64,
+    val: u8,
 };
 const InnerNode = struct {
     p: ?*Node,
@@ -124,21 +125,25 @@ const Node = union(enum) {
 
         pub fn next(self: *@This()) !?NodeAndDepth {
             if (self.stack.popOrNull()) |top| {
-                switch (top.node) {
+                switch (top.node.*) {
                     .Inner => |inn| {
                         try self.stack.append(.{ .node = inn.r, .depth = top.depth + 1 });
                         try self.stack.append(.{ .node = inn.l, .depth = top.depth + 1 });
                     },
-                    .Leaf => continue,
+                    .Leaf => {},
                 }
                 return top;
             } else return null;
+        }
+
+        pub fn deinit(self: @This()) void {
+            self.stack.deinit();
         }
     };
 
     /// Returns an iterator that walks over every node in the tree, as a pre-order traversal.
     fn treePreOrderIterator(root: *Self, allocator: Allocator) !TreePreOrderIterator {
-        const stack = List(NodeAndDepth).init(Allocator);
+        var stack = List(NodeAndDepth).init(allocator);
         try stack.append(.{ .node = root, .depth = 0 });
         return TreePreOrderIterator{ .stack = stack };
     }
@@ -147,10 +152,19 @@ const Node = union(enum) {
         it: TreePreOrderIterator,
         /// Returns the next pair in tree order, or null if no such pair exists.
         /// When it returns a pair, the depth field on the iterator is a 0-indexed height of the pair
-        pub fn next() !?NodeAndDepth {
-            while (try it.next()) |pair| {
-                if (pair.node.isPair()) return pair;
+        pub fn next(self: *@This()) !?NodeAndDepth {
+            while (try self.it.next()) |pair| {
+                if (pair.node.isPair()) {
+                    // Hack: internal impl details of the iterator (whatever...)
+                    // pop off the leaves because the pair may get exploded and anyway we don't care about leaves.
+                    _ = self.it.stack.pop();
+                    _ = self.it.stack.pop();
+                    return pair;
+                }
             } else return null;
+        }
+        pub fn deinit(self: @This()) void {
+            self.it.deinit();
         }
     };
 
@@ -162,16 +176,76 @@ const Node = union(enum) {
     pub const LeafIterator = struct {
         it: TreePreOrderIterator,
 
-        pub fn next() !?*Node {
-            while (try it.next()) |pair| {
+        /// Always returns a Leaf node.
+        pub fn next(self: *@This()) !?*Node {
+            while (try self.it.next()) |pair| {
                 if (pair.node.isLeaf()) return pair.node;
             } else return null;
+        }
+        pub fn deinit(self: @This()) void {
+            self.it.deinit();
         }
     };
 
     // Iterates over all the leaves in the tree rooted at root
-    pub fn leafIterator(root: *Self, allocator: Allocator) !PairIterator {
-        return PairIterator{ .it = try treePreOrderIterator(root, allocator) };
+    pub fn leafIterator(root: *Self, allocator: Allocator) !LeafIterator {
+        return LeafIterator{ .it = try treePreOrderIterator(root, allocator) };
+    }
+
+    // ------------- Serializing and parsing ----------------------
+
+    // Turns a tree into a series of brackets
+    pub fn toString(number: *Self, allocator: Allocator) !Str {
+        var resultList = List(u8).init(allocator);
+        errdefer resultList.deinit();
+        try toStringRec(number, allocator, &resultList);
+        return resultList.toOwnedSlice();
+    }
+
+    fn toStringRec(number: *Self, allocator: Allocator, resultList: *List(u8)) error{OutOfMemory}!void {
+        switch (number.*) {
+            .Inner => |inn| {
+                try resultList.append('[');
+                try toStringRec(inn.l, allocator, resultList);
+                try resultList.append(',');
+                try toStringRec(inn.r, allocator, resultList);
+                try resultList.append(']');
+            },
+            .Leaf => |leaf| {
+                var val = leaf.val;
+                if (val >= 10) {
+                    try resultList.append(val / 10 + '0');
+                    val = val % 10;
+                }
+                try resultList.append(val + '0');
+            },
+        }
+    }
+
+    pub fn magnitude(number: Self) usize {
+        var total: usize = 0;
+        switch (number) {
+            .Inner => |inn| {
+                total += 3 * magnitude(inn.l.*);
+                total += 2 * magnitude(inn.r.*);
+            },
+            .Leaf => |leaf| {
+                total += leaf.val;
+            },
+        }
+        return total;
+    }
+
+    pub fn assertParentPointers(number: Self) void {
+        switch (number) {
+            .Inner => |inn| {
+                if (inn.l.parent() != &number) @panic("Left parent pointer invalid");
+                if (inn.r.parent() != &number) @panic("Right parent pointer invalid");
+                inn.l.assertParentPointers();
+                inn.r.assertParentPointers();
+            },
+            .Leaf => return,
+        }
     }
 };
 
@@ -207,8 +281,10 @@ fn splitLeaf(self: *Node, allocator: Allocator) !void {
     const leftVal = val / 2;
     const rightVal = leftVal + @rem(val, 2);
 
-    const leftLeaf = try makeLeaf(leftVal, allocator);
-    const rightLeaf = try makeLeaf(rightVal, allocator);
+    var leftLeaf = try makeLeaf(leftVal, allocator);
+    leftLeaf.setParent(self);
+    var rightLeaf = try makeLeaf(rightVal, allocator);
+    rightLeaf.setParent(self);
     const parent = self.Leaf.p;
 
     // Overwrite self. Note that self.val / self.p are now invalid!
@@ -219,8 +295,51 @@ fn splitLeaf(self: *Node, allocator: Allocator) !void {
     } };
 }
 
-fn partOne(_: Str) usize {
-    return 0;
+fn reduceSnailfishNumber(number: *Node, allocator: Allocator) !void {
+    outer: while (true) {
+        if (builtin.is_test) {
+            number.assertParentPointers();
+        }
+
+        // First, we iterate over the pairs and explode them if needed
+        {
+            var pairsIt = try number.pairIterator(allocator);
+            defer pairsIt.deinit();
+            while (try pairsIt.next()) |pairAndDepth| {
+                if (pairAndDepth.depth > 3) {
+                    explodePair(pairAndDepth.node, allocator);
+                }
+            }
+        }
+        // Then, we iterate over the leaves and split them if needed
+        {
+            var leavesIt = try number.leafIterator(allocator);
+            defer leavesIt.deinit();
+            while (try leavesIt.next()) |leaf| {
+                if (leaf.Leaf.val >= 10) {
+                    try splitLeaf(leaf, allocator);
+                    continue :outer; // A split may cause a explosion. For simplicity, we just restart the process.
+                }
+            }
+        }
+        return;
+    }
+}
+
+fn addSnailfishNumber(l: *Node, r: *Node, allocator: Allocator) !*Node {
+    var result = try makePair(l, r, allocator);
+    try reduceSnailfishNumber(result, allocator);
+    return result;
+}
+
+fn partOne(input: Str, allocator: Allocator) !usize {
+    var it = tokenize(u8, input, "\n");
+    var num = try parseSnailfishNumber(it.next().?, allocator);
+    while (it.next()) |line| {
+        var nextNum = try parseSnailfishNumber(line, allocator);
+        num = try addSnailfishNumber(num, nextNum, allocator);
+    }
+    return num.magnitude();
 }
 
 fn partTwo(_: Str) usize {
@@ -230,14 +349,14 @@ fn partTwo(_: Str) usize {
 pub fn main() !void {
     // Standard boilerplate for Aoc problems
     const stdout = std.io.getStdOut().writer();
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // var gpaAllocator = gpa.allocator();
-    // defer assert(!gpa.deinit()); // Check for memory leaks
-    // var arena = std.heap.ArenaAllocator.init(gpaAllocator);
-    // defer arena.deinit();
-    // var allocator = arena.allocator();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpaAllocator = gpa.allocator();
+    defer assert(!gpa.deinit()); // Check for memory leaks
+    var arena = std.heap.ArenaAllocator.init(gpaAllocator);
+    defer arena.deinit();
+    var allocator = arena.allocator();
 
-    try stdout.print("Part 1: {d}Part2: {d}\n", .{ partOne(inputFile), partTwo(inputFile) });
+    try stdout.print("Part 1: {d}Part2: {d}\n", .{ partOne(inputFile, allocator), partTwo(inputFile) });
 }
 
 fn makePair(left: *Node, right: *Node, allocator: Allocator) !*Node {
@@ -250,7 +369,7 @@ fn makePair(left: *Node, right: *Node, allocator: Allocator) !*Node {
     return newParent;
 }
 
-fn makeLeaf(val: u64, allocator: Allocator) !*Node {
+fn makeLeaf(val: u8, allocator: Allocator) !*Node {
     var x = try allocator.create(Node);
     x.* = Node{ .Leaf = .{ .p = null, .val = val } };
     return x;
@@ -379,4 +498,51 @@ test "Explode Pair complex" {
     try std.testing.expectEqual(@as(u64, 31 + 41), l31.Leaf.val);
     try std.testing.expectEqual(@as(u64, 43 + 42), l43.Leaf.val);
     try std.testing.expectEqual(@as(u64, 0), p21.Inner.r.Leaf.val);
+}
+
+test "Add snailfish numbers" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var allocator = arena.allocator();
+    const first = try parseSnailfishNumber("[[[[4,3],4],4],[7,[[8,4],9]]]", allocator);
+    const second = try parseSnailfishNumber("[1,1]", allocator);
+
+    const result = try addSnailfishNumber(first, second, allocator);
+    try std.testing.expectEqualSlices(u8, try result.toString(allocator), "[[[[0,7],4],[[7,8],[6,0]]],[8,1]]");
+}
+
+test "part one simple" {
+    const input =
+        \\[1,1]
+        \\[2,2]
+        \\[3,3]
+        \\[4,4]
+        \\[5,5]
+        \\[6,6]
+        \\
+    ;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var allocator = arena.allocator();
+    try std.testing.expectEqual(@as(usize, 1137), try partOne(input, allocator));
+}
+
+test "Part one" {
+    const input =
+        \\[[[0,[4,5]],[0,0]],[[[4,5],[2,6]],[9,5]]]
+        \\[7,[[[3,7],[4,3]],[[6,3],[8,8]]]]
+        \\[[2,[[0,8],[3,4]]],[[[6,7],1],[7,[1,6]]]]
+        \\[[[[2,4],7],[6,[0,5]]],[[[6,8],[2,8]],[[2,1],[4,5]]]]
+        \\[7,[5,[[3,8],[1,4]]]]
+        \\[[2,[2,2]],[8,[8,1]]]
+        \\[2,9]
+        \\[1,[[[9,3],9],[[9,0],[0,7]]]]
+        \\[[[5,[7,4]],7],1]
+        \\[[[[4,2],2],6],[8,7]]
+        \\
+    ;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var allocator = arena.allocator();
+    try std.testing.expectEqual(@as(usize, 3488), try partOne(input, allocator));
 }
