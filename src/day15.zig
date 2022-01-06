@@ -25,7 +25,7 @@ const QueueDatum = struct {
     size: u32,
     pos: u32,
 
-    pub fn compare(a: @This(), b: @This()) std.math.Order {
+    pub fn compare(_: void, a: @This(), b: @This()) std.math.Order {
         const ord = std.math.order(a.size, b.size);
         if (ord == .eq) {
             return std.math.order(a.pos, b.pos); // heuristic: favor items with bigger pos
@@ -38,7 +38,7 @@ const QueueDatum = struct {
 fn gridDjikstra(input: Input, allocator: Allocator) !u32 {
     var visited = try BitSet.initEmpty(allocator, input.items.len);
     defer visited.deinit();
-    var queue = PriorityQueue(QueueDatum, QueueDatum.compare).init(allocator);
+    var queue = PriorityQueue(QueueDatum, void, QueueDatum.compare).init(allocator, {});
     defer queue.deinit();
     const nCols = @intCast(u32, input.nCols);
 
